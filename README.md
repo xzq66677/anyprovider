@@ -170,11 +170,11 @@ The wizard is the same engine without flags — it asks for the base URL, the ke
 
 ```bash
 node src/wizard.mjs
-# or
-npm run wizard
+# or, after `npm i -g .`
+anyprovider-wizard
 ```
 
-There is **no `anyprovider-wizard` bin**; `package.json` only exposes `anyprovider`, plus the `wizard` npm script. The wizard has no flags — pass nothing. Its prompts are currently in Chinese.
+The wizard has no flags — just run it and answer. Its prompts are currently in Chinese.
 
 Flow: base URL → key → display name → probe → model table with a selection prompt (`enter` = all, `1,3-5` = indexes, `M id1,id2` = manual, `Q` = quit) → target menu (defaults to the targets whose config files already exist on disk) → preview of every file to be written → one confirmation → apply.
 

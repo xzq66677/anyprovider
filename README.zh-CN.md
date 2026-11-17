@@ -170,11 +170,11 @@ node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt \
 
 ```bash
 node src/wizard.mjs
-# 或
-npm run wizard
+# 或 npm i -g . 之后
+anyprovider-wizard
 ```
 
-**没有 `anyprovider-wizard` 这个 bin** —— `package.json` 只暴露 `anyprovider` 一个命令，外加 `wizard` 这个 npm script。向导不接受任何参数。提示语目前是中文。
+向导不接受任何参数，跑起来一条条回答就行。提示语目前是中文。
 
 流程：base URL → Key → 显示名 → 探测 → 模型表格与选择提示（回车 = 全部，`1,3-5` = 序号，`M id1,id2` = 手工指定，`Q` = 退出）→ target 菜单（默认选中磁盘上已存在配置文件的那几个）→ 预览每个将要写入的文件 → 一次确认 → 写入。
 

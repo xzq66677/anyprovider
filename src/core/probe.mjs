@@ -358,7 +358,9 @@ export async function discover(options) {
   if (rows.some((r) => r.sources.maxOutput === 'probe')) {
     notes.push('Max output values marked "probe" come from the gateway\'s own 400 error message.');
   }
-  if (!result.providerReasoning) {
+  if (!picks.length && !deep) {
+    notes.push('Reasoning probing was skipped, so no reasoning option was configured. Re-run without --sample 0 to detect it.');
+  } else if (!result.providerReasoning) {
     notes.push('No reasoning knob was accepted — models get no reasoning option.');
   }
 

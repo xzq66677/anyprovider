@@ -51,14 +51,3 @@ export function printResults(results) {
     if (r.backedUp) note(`    backup: ${r.backedUp}`);
   }
 }
-
-export function printOutro(targets, dryRun) {
-  say('');
-  if (dryRun) {
-    note('  This was a dry run — nothing was written. Add --write to apply.');
-    return;
-  }
-  const restart = targets.filter((t) => t.restartHint).map((t) => t.restartHint);
-  if (restart.length) for (const hint of restart) note(`  ${hint}`);
-  note('  Done. Restart the app(s) you edited so they reload their config.');
-}

@@ -14,7 +14,7 @@ import { DEFAULTS, discover } from './core/probe.mjs';
 import { providerIdFromHost } from './core/endpoints.mjs';
 import { executePlan } from './core/run.mjs';
 import { printDiscovery, printModels, printNotes, printResults, printSnippet } from './core/report.mjs';
-import { TARGETS, TARGET_IDS, resolveTargets } from './targets/index.mjs';
+import { TARGETS, TARGET_IDS, resolveTargets, supportsProtocol } from './targets/index.mjs';
 import { bold, cyan, dim, fail, green, say, step, warn } from './core/format.mjs';
 
 const VERSION = '0.1.0';
@@ -160,6 +160,10 @@ async function main() {
   for (const target of targets) {
     stepIndex += 1;
     step(stepIndex, `${target.label}`);
+    if (!supportsProtocol(target, discovery.protocol)) {
+      warn(`   skipped: this gateway speaks ${discovery.protocol}, ${target.label} needs ${target.protocols.join('/')}`);
+      continue;
+    }
     try {
       const plan = target.plan({
         discovery,

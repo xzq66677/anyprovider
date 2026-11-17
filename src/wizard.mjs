@@ -10,7 +10,7 @@ import { DEFAULTS, discover } from './core/probe.mjs';
 import { normalizeBase, providerIdFromHost } from './core/endpoints.mjs';
 import { createPrompt } from './core/prompt.mjs';
 import { executePlan } from './core/run.mjs';
-import { TARGETS } from './targets/index.mjs';
+import { TARGETS, supportsProtocol } from './targets/index.mjs';
 import { printNotes, printResults, printSnippet } from './core/report.mjs';
 import { banner, bold, cyan, dim, green, mask, note, say, step, table, warn } from './core/format.mjs';
 
@@ -182,6 +182,10 @@ async function main() {
   step(7, '预览');
   const plans = [];
   for (const target of picked) {
+    if (!supportsProtocol(target, discovery.protocol)) {
+      warn(`   ✗ ${target.label}: 这个网关是 ${discovery.protocol} 格式，它只认 ${target.protocols.join('/')}，跳过`);
+      continue;
+    }
     try {
       plans.push({ target, plan: target.plan({ discovery, selected: chosen, providerId, providerName, baseUrl, apiKey, path: null }) });
     } catch (err) {

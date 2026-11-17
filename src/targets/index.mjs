@@ -36,3 +36,14 @@ export function resolveTargets(list) {
     .filter(Boolean)
     .map(getTarget);
 }
+
+/**
+ * Can this target consume what the gateway speaks?
+ * `protocols` is a declaration every adapter must honour, otherwise a chat-only
+ * harness silently gets a config written for an anthropic gateway.
+ */
+export function supportsProtocol(target, protocol) {
+  if (!protocol) return false;
+  if (!Array.isArray(target.protocols) || !target.protocols.length) return true;
+  return target.protocols.includes(protocol);
+}

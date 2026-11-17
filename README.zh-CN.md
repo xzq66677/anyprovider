@@ -33,7 +33,7 @@ anyprovider 用一次探测回答前三个问题，再用 target adapter 回答�
 
 ```bash
 # 从源码运行
-git clone https://github.com/USER/anyprovider.git
+git clone https://github.com/xzq66677/anyprovider.git
 cd anyprovider
 node src/cli.mjs --help
 

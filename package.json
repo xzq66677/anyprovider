@@ -18,7 +18,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/probe.test.mjs test/targets.test.mjs",
     "start": "node src/cli.mjs",
     "wizard": "node src/wizard.mjs",
     "mock": "node test/serve-mock.mjs"
@@ -43,7 +43,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/USER/anyprovider.git"
+    "url": "git+https://github.com/xzq66677/anyprovider.git"
   },
   "license": "MIT"
 }

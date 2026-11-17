@@ -33,7 +33,7 @@ Requires Node 18 or newer. There are no dependencies — `node_modules` never ap
 
 ```bash
 # from source
-git clone https://github.com/USER/anyprovider.git
+git clone https://github.com/xzq66677/anyprovider.git
 cd anyprovider
 node src/cli.mjs --help
 

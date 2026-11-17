@@ -1,0 +1,49 @@
+{
+  "name": "anyprovider",
+  "version": "0.1.0",
+  "description": "Probe any OpenAI/Anthropic-compatible LLM gateway and generate ready-to-use provider config for ZCode, opencode, Claude Code, Continue, Cline, LiteLLM, aider and more.",
+  "type": "module",
+  "bin": {
+    "anyprovider": "src/cli.mjs",
+    "anyprovider-wizard": "src/wizard.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "src",
+    "docs",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/",
+    "start": "node src/cli.mjs",
+    "wizard": "node src/wizard.mjs",
+    "mock": "node test/serve-mock.mjs"
+  },
+  "keywords": [
+    "llm",
+    "openai-compatible",
+    "anthropic",
+    "openrouter",
+    "gateway",
+    "provider",
+    "onboarding",
+    "opencode",
+    "zcode",
+    "claude-code",
+    "continue",
+    "cline",
+    "litellm",
+    "aider",
+    "reasoning",
+    "context-window"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/USER/anyprovider.git"
+  },
+  "license": "MIT"
+}

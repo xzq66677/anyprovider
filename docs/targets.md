@@ -18,10 +18,14 @@ Shared behaviour, not repeated below:
 | `zcode` | `<dataBaseDir>/.zcode/v2/provider_config.json` | merge | chat, responses, anthropic | yes — quit from tray |
 | `opencode` | `~/.config/opencode/opencode.json[c]` | merge | chat, responses, anthropic | yes, plus an env var |
 | `claude-code` | `~/.claude/settings.json` | merge | anthropic only | yes — new `claude` session |
+| `deepseek-harness` | `~/.dsh/profiles/desktop/cordis.patch.yml` + `~/.dsh/.credentials.yaml` | merge (both) | chat, responses, anthropic | yes — quit from tray |
 | `cline` | VS Code user `settings.json` | merge | chat | reload the window |
 | `continue` | `~/.continue/config.yaml` | create / suggest | chat | yes |
 | `litellm` | `./litellm.config.yaml` | create / suggest | chat, responses, anthropic | restart the proxy |
 | `aider` | `~/.aider.conf.yml` | create / suggest | chat | next invocation |
+| `zed` | `~/.config/zed/settings.json` (Win: `%APPDATA%\Zed\settings.json`) | merge | chat, responses, anthropic | yes — restart Zed |
+| `vscode-copilot` | user `chatLanguageModels.json` | merge | chat, responses, anthropic | reload the window |
+| `windsurf` | `~/.anyprovider/windsurf.json` only | merge | chat, responses, anthropic | n/a — guided |
 | `env` | `~/.anyprovider/providers.json` | merge | chat, responses, anthropic | n/a |
 
 "Mode" is what the adapter asks for. `create` degrades to a suggestion file whenever the target already exists; `suggest` never touches the real file.
@@ -289,6 +293,125 @@ The first selected model becomes `model`; the second (or the first again) become
 **Protocol:** chat completions; aider talks to gateways through its `openai/` provider prefix.
 
 **Restart:** nothing to restart; the file is read on the next `aider` invocation.
+
+---
+
+## deepseek-harness
+
+**Files:** `~/.dsh/profiles/desktop/cordis.patch.yml` (provider definition) and `~/.dsh/.credentials.yaml` (the key). `DSH_PATCH` and `DSH_CREDENTIALS` override both — point `DSH_PATCH` at `~/.dsh/profiles/headless/cordis.patch.yml` if you also run the headless profile.
+
+**Written:** the provider is merged into the `id: llm-pi-ai` patch entry's `config.providers` map (an existing entry with the same id is replaced; the entry is created when missing):
+
+```yaml
+      custom-api-example-com:
+        displayName: api.example.com
+        apiKeyEnv: CUSTOM_API_EXAMPLE_COM_API_KEY
+        api: openai-completions        # or openai-responses / anthropic-messages
+        baseURL: https://api.example.com/v1
+        models:
+          - id: model-a
+            name: model-a
+            contextWindow: 262144
+            maxTokens: 65536
+            reasoningEfforts:          # only for models with a reasoning knob
+              off: null
+              low: low
+              medium: medium
+              high: high
+```
+
+The key itself never enters the patch file — that is DSH's own rule ("cordis.patch.yml 从不携带密钥值"). It is upserted into the credentials store:
+
+```yaml
+refs:
+  CUSTOM_API_EXAMPLE_COM_API_KEY: sk-...
+```
+
+**Merge safety:** indentation-aware line surgery, not parse/serialize — the repo ships zero dependencies, so the adapter locates the `llm-pi-ai` entry, the `providers:` map and each provider block by exact indent rules and rewrites only its own block. Providers it has never seen (and grant records in `.credentials.yaml`) survive verbatim, line endings are preserved, and a guard refuses to write if the key ever leaked into the patch text.
+
+**Protocol:** all three — DSH's pi-ai engine speaks `openai-completions`, `openai-responses` and `anthropic-messages`.
+
+**Restart:** fully quit DeepSeek Harness from the tray and start it again; the patch layer is read at startup.
+
+---
+
+## zed
+
+**File:** `~/.config/zed/settings.json`; on Windows `%APPDATA%\Zed\settings.json`. `ZED_SETTINGS` overrides.
+
+**Written:** a provider under `language_models.openai_compatible.<providerId>` (or `anthropic_compatible.<providerName>` for anthropic gateways):
+
+```json
+{
+  "language_models": {
+    "openai_compatible": {
+      "custom-api-example-com": {
+        "api_url": "https://api.example.com/v1",
+        "available_models": [
+          { "name": "model-a", "display_name": "model-a", "max_tokens": 262144,
+            "max_output_tokens": 65536, "reasoning_effort": "medium" }
+        ]
+      }
+    }
+  }
+}
+```
+
+Models that rejected every reasoning knob get no `reasoning_effort`; `responses`-protocol models get `capabilities.chat_completions: false`; anthropic gateways get a `thinking` mode entry and an `/v1`-stripped URL.
+
+**Merge safety:** full JSON parse/merge — unrelated settings are preserved.
+
+**Protocol:** chat, responses, anthropic.
+
+**Restart:** yes — restart Zed after editing settings.json.
+
+---
+
+## vscode-copilot
+
+**File:** the VS Code user `chatLanguageModels.json` custom-endpoint list. On Windows it prefers `%APPDATA%\Code\User\` and falls back to `Code - Insiders` when only the Insiders file exists; `VSCODE_CHAT_MODELS` overrides the whole path.
+
+**Written:** one `customendpoint` provider entry per run (matched and replaced by `name`):
+
+```json
+[{
+  "name": "api.example.com",
+  "vendor": "customendpoint",
+  "apiType": "chat-completions",
+  "apiKey": "sk-...",
+  "models": [{
+    "id": "model-a", "name": "model-a", "apiType": "chat-completions",
+    "url": "https://api.example.com/v1/chat/completions",
+    "toolCalling": true, "vision": false,
+    "maxInputTokens": 196608, "maxOutputTokens": 65536,
+    "thinking": true,
+    "supportsReasoningEffort": ["minimal", "low", "medium", "high"],
+    "reasoningEffortFormat": "chat-completions"
+  }]
+}]
+```
+
+`apiType` maps the protocol directly: `chat` → `chat-completions`, `responses` → `responses`, `anthropic` → `messages`. Each model's `url` is the full endpoint the probe actually verified, including the API path. `maxInputTokens + maxOutputTokens` always equals the probed context window — VS Code treats their sum as the context size. Reasoning fields appear only for models with a knob; anthropic gateways accept `["low", "medium", "high"]`, chat ones `["minimal", "low", "medium", "high"]`.
+
+**Merge safety:** full JSON parse/merge — its own entry is replaced by `name`, other entries stay.
+
+**Protocol:** chat, responses, anthropic.
+
+**Restart:** reload the VS Code window.
+
+---
+
+## windsurf
+
+**File:** `~/.anyprovider/windsurf.json` — a capture bundle, nothing inside Windsurf itself.
+
+Windsurf documents no settings file for arbitrary custom endpoints; Cascade's BYOK dialog only accepts pasted values. Rather than inventing a config format and corrupting an install, this target records the discovered provider (base URL, key, models, primary model) in the bundle and prints the exact three values to paste into the BYOK dialog, plus a note pointing at the supported ACP-agent path (OpenCode, Claude Agent, Gemini CLI) if the dialog rejects the paste.
+
+**Merge safety:** the bundle is JSON and merged; Windsurf's own files are never touched.
+
+**Protocol:** chat, responses, anthropic.
+
+**Restart:** n/a — nothing was written into Windsurf.
 
 ---
 

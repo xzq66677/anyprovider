@@ -17,7 +17,7 @@
 - **有哪些模型 id？** `/v1/models` 经常不存在、过期，或者是手写的。
 - **reasoning 参数怎么传？** `reasoning_effort`、`thinking.type`、`reasoning.effort`、`enable_thinking`、`chat_template_kwargs` —— 每家网关各发明一个，猜错就是硬 400。
 - **上下文窗口和输出上限多大？** 猜大了请求被拒，猜小了回答被截断。
-- **我的 harness 要什么格式？** ZCode、opencode、Claude Code、Continue、Cline、LiteLLM、aider 各自把 provider 配置放在不同的文件里，键名不同，对"模型"的抽象也不同。
+- **我的 harness 要什么格式？** ZCode、opencode、Claude Code、DeepSeek Harness、Continue、Cline、LiteLLM、aider、Zed、VS Code Copilot、Windsurf 各自把 provider 配置放在不同的文件里，键名不同，对"模型"的抽象也不同。
 
 anyprovider 用一次探测回答前三个问题，再用 target adapter 回答第四个。
 
@@ -102,7 +102,7 @@ Output
   --interactive         ask for the import target even without a TTY
   --list-targets        show supported harnesses
 
-Targets  zcode  opencode  claude-code  cline  continue  litellm  aider  env
+Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litellm  aider  zed  vscode-copilot  windsurf  env
 ```
 
 | 参数 | 含义 |
@@ -262,10 +262,14 @@ node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt \
 | `zcode` | ZCode | `<dataBaseDir>/.zcode/v2/provider_config.json` | 是 —— 合并，且先自校验 | chat, responses, anthropic |
 | `opencode` | opencode | `~/.config/opencode/opencode.json`（或 `.jsonc`） | 是 —— 合并，兼容两代 schema | chat, responses, anthropic |
 | `claude-code` | Claude Code | `~/.claude/settings.json` | 是 —— 合并 `env` 块 | 仅 anthropic |
+| `deepseek-harness` | DeepSeek Harness | `~/.dsh/profiles/desktop/cordis.patch.yml`，密钥写入 `~/.dsh/.credentials.yaml` | 是 —— 按缩进做 YAML 行手术 | chat, responses, anthropic |
 | `cline` | Cline / Roo Code | VS Code 用户 `settings.json` | 是 —— 合并扁平的 `cline.*` 键 | chat |
 | `continue` | Continue | `~/.continue/config.yaml` | 仅在文件不存在时创建，否则出建议文件 | chat |
 | `litellm` | LiteLLM | `./litellm.config.yaml` | 仅在文件不存在时创建，否则出建议文件 | chat, responses, anthropic |
 | `aider` | aider | `~/.aider.conf.yml` | 仅在文件不存在时创建，否则出建议文件 | chat |
+| `zed` | Zed | `~/.config/zed/settings.json`（Windows：`%APPDATA%\Zed\settings.json`） | 是 —— 合并 `language_models` | chat, responses, anthropic |
+| `vscode-copilot` | VS Code Copilot Chat | `chatLanguageModels.json` 自定义端点列表 | 是 —— 合并数组 | chat, responses, anthropic |
+| `windsurf` | Windsurf（引导模式） | 只写 `~/.anyprovider/windsurf.json` 捆绑包 | 是 —— 绝不碰 Windsurf 自身文件 | chat, responses, anthropic |
 | `env` | 其他任意工具 | `~/.anyprovider/providers.json` | 是 —— 合并 registry | chat, responses, anthropic |
 
 「协议」一列表示生成配置所假定的协议。当探测出的协议是某个 target 说不通的，该 target 会被**跳过并给出警告**，而不是写出一个永远用不了的配置 —— 所以在 Anthropic 原生网关上跑 `--target all`，会写 ZCode、opencode、LiteLLM 和通用包，跳过只认 chat 的那几个。

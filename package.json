@@ -1,7 +1,7 @@
 {
   "name": "anyprovider",
   "version": "0.1.0",
-  "description": "Probe any OpenAI/Anthropic-compatible LLM gateway and generate ready-to-use provider config for ZCode, opencode, Claude Code, Continue, Cline, LiteLLM, aider and more.",
+  "description": "Probe any OpenAI/Anthropic-compatible LLM gateway and generate ready-to-use provider config for ZCode, opencode, Claude Code, DeepSeek Harness, Continue, Cline, LiteLLM, aider, Zed, VS Code Copilot and more.",
   "type": "module",
   "bin": {
     "anyprovider": "src/cli.mjs",
@@ -18,7 +18,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/probe.test.mjs test/targets.test.mjs",
+    "test": "node --test test/probe.test.mjs test/targets.test.mjs test/targets-new.test.mjs",
     "start": "node src/cli.mjs",
     "wizard": "node src/wizard.mjs",
     "mock": "node test/serve-mock.mjs"
@@ -34,6 +34,10 @@
     "opencode",
     "zcode",
     "claude-code",
+    "deepseek-harness",
+    "zed",
+    "vscode-copilot",
+    "windsurf",
     "continue",
     "cline",
     "litellm",

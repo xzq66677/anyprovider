@@ -17,7 +17,7 @@ Onboarding a new model provider is four unknowns stacked on top of each other:
 - **Which model ids exist?** Often `/v1/models` is missing, stale, or hand-maintained.
 - **How is reasoning passed?** `reasoning_effort`, `thinking.type`, `reasoning.effort`, `enable_thinking`, `chat_template_kwargs` — every gateway picked a different one, and a wrong guess is a hard 400.
 - **How large is the context window and the output ceiling?** Guessing wrong is either a truncated answer or a request the server rejects outright.
-- **What does my harness want?** ZCode, opencode, Claude Code, Continue, Cline, LiteLLM and aider all store provider config in different files, with different keys and different ideas about what a "model" is.
+- **What does my harness want?** ZCode, opencode, Claude Code, DeepSeek Harness, Continue, Cline, LiteLLM, aider, Zed, VS Code Copilot and Windsurf all store provider config in different files, with different keys and different ideas about what a "model" is.
 
 anyprovider answers all four by talking to the gateway, then emits the file each harness expects.
 
@@ -102,7 +102,7 @@ Output
   --interactive         ask for the import target even without a TTY
   --list-targets        show supported harnesses
 
-Targets  zcode  opencode  claude-code  cline  continue  litellm  aider  env
+Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litellm  aider  zed  vscode-copilot  windsurf  env
 ```
 
 | Flag | Meaning |
@@ -262,10 +262,14 @@ Use `--vision-sample 0` to skip the extra requests entirely.
 | `zcode` | ZCode | `<dataBaseDir>/.zcode/v2/provider_config.json` | yes — merges, validates first | chat, responses, anthropic |
 | `opencode` | opencode | `~/.config/opencode/opencode.json` (or `.jsonc`) | yes — merges, both schema generations | chat, responses, anthropic |
 | `claude-code` | Claude Code | `~/.claude/settings.json` | yes — merges the `env` block | anthropic only |
+| `deepseek-harness` | DeepSeek Harness | `~/.dsh/profiles/desktop/cordis.patch.yml` + key into `~/.dsh/.credentials.yaml` | yes — indentation-aware YAML surgery | chat, responses, anthropic |
 | `cline` | Cline / Roo Code | VS Code user `settings.json` | yes — merges flat `cline.*` keys | chat |
 | `continue` | Continue | `~/.continue/config.yaml` | create or suggest | chat |
 | `litellm` | LiteLLM | `./litellm.config.yaml` | create or suggest | chat, responses, anthropic |
 | `aider` | aider | `~/.aider.conf.yml` | create or suggest | chat |
+| `zed` | Zed | `~/.config/zed/settings.json` (Windows: `%APPDATA%\Zed\settings.json`) | yes — merges `language_models` | chat, responses, anthropic |
+| `vscode-copilot` | VS Code Copilot Chat | `chatLanguageModels.json` custom-endpoint list | yes — merges the array | chat, responses, anthropic |
+| `windsurf` | Windsurf (guided) | `~/.anyprovider/windsurf.json` bundle only | yes — never touches Windsurf itself | chat, responses, anthropic |
 | `env` | anything else | `~/.anyprovider/providers.json` | yes — merges registry | chat, responses, anthropic |
 
 "Protocols" is what the emitted config assumes. When the probe detects a protocol a target cannot speak, that target is **skipped with a warning** instead of writing a config it could never use — so `--target all` against an Anthropic-native gateway writes ZCode, opencode, LiteLLM and the generic bundle, and skips the chat-only ones.

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import zed from '../src/targets/zed.mjs';
 import vscodeCopilot from '../src/targets/vscode-copilot.mjs';
 import windsurf from '../src/targets/windsurf.mjs';
-import dsh from '../src/targets/deepseek-harness.mjs';
+import dsh, { dshCredentialsPath } from '../src/targets/deepseek-harness.mjs';
 import { TARGETS, TARGET_IDS, supportsProtocol } from '../src/targets/index.mjs';
 
 let dir;
@@ -226,6 +226,16 @@ refs:
 const dshEnv = (credPath) => ({ DSH_CREDENTIALS: credPath });
 
 describe('deepseek-harness target', () => {
+  it('resolves default paths without an override (regression: missing join import)', () => {
+    const patchPath = dsh.defaultPath({});
+    assert.ok(patchPath.endsWith(join('.dsh', 'profiles', 'desktop', 'cordis.patch.yml')), patchPath);
+    assert.ok(dshCredentialsPath({}).endsWith(join('.dsh', '.credentials.yaml')), dshCredentialsPath({}));
+    const plan = dsh.plan({
+      discovery: chatDiscovery, selected, ...opts,
+      env: { DSH_PATCH: join(dir, 'dsh', 'regression', 'cordis.patch.yml'), DSH_CREDENTIALS: join(dir, 'dsh', 'regression', '.credentials.yaml') },
+    });
+    assert.equal(plan.writes.length, 2);
+  });
   it('creates both files from scratch and keeps the key out of the patch', () => {
     const patchPath = join(dir, 'dsh', 'fresh', 'cordis.patch.yml');
     const credPath = join(dir, 'dsh', 'fresh', '.credentials.yaml');

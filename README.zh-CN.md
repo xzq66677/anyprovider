@@ -82,7 +82,8 @@ Required
   --key-file <path>     file containing the API key (preferred)
   --key <key>           API key inline (visible in shell history)
                         or set ANYPROVIDER_API_KEY / OPENAI_API_KEY
-  --target <ids>        comma separated, or "all" (omit to be asked interactively)
+  --target <ids>        逗号分隔；"all" = 全部 adapter，"installed" = 磁盘上检测到的
+                        省略则交互式询问导入目标
 
 Discovery
   --model <ids>         comma separated model ids (when /models is missing)
@@ -139,6 +140,12 @@ Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litell
 node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt --target env
 ```
 
+一个 Key 一键写进磁盘上检测到的所有 harness（先 dry-run 预览，确认后加 `--write`）：
+
+```bash
+node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt --target installed
+```
+
 网关没有 `/models`，但你知道模型 id：
 
 ```bash
@@ -170,7 +177,7 @@ node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt \
 
 ## 向导
 
-向导是同一个引擎，只是把参数换成提问 —— 依次询问 base URL、Key（不回显）、显示名，然后列出模型、让你挑 target。
+向导是同一个引擎，只是把参数换成提问 —— 先问这个 Key 要给哪些 harness 用（可多选），再依次询问 base URL、Key（不回显）、显示名，然后列出模型，最后一次确认一键写入。
 
 ```bash
 node src/wizard.mjs
@@ -180,7 +187,7 @@ anyprovider-wizard
 
 向导不接受任何参数，跑起来一条条回答就行。提示语目前是中文。
 
-流程：base URL → Key → 显示名 → 探测 → 模型表格与选择提示（回车 = 全部，`1,3-5` = 序号，`M id1,id2` = 手工指定，`Q` = 退出）→ target 菜单（默认选中磁盘上已存在配置文件的那几个）→ 预览每个将要写入的文件 → 一次确认 → 写入。
+流程：**先选 target**（这个 Key 要给哪些 harness 用？按序号或 id 多选，回车 = 磁盘上已存在配置文件的那几个，`A` = 全部）→ base URL → Key → 显示名 → 探测 → 模型表格与选择提示（回车 = 全部，`1,3-5` = 序号，`M id1,id2` = 手工指定，`Q` = 退出）→ 预览每个将要写入的文件 → **一次确认，把同一个地址和 Key 一键写进你勾选的所有 harness**。
 
 在真实终端里它会等一次回车再关闭窗口，所以双击启动也不会一闪而过。管道输入同样可用：先到的行会进队列，不会被丢掉。
 

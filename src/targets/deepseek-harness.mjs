@@ -35,6 +35,7 @@
  * preserved verbatim. Line endings are preserved per file.
  */
 
+import { join } from 'node:path';
 import { baseNotes, home, readTextIfExists, yamlString } from './_shared.mjs';
 
 const FORMAT = {

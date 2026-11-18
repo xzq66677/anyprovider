@@ -9,7 +9,7 @@ import opencode from '../src/targets/opencode.mjs';
 import claudeCode from '../src/targets/claude-code.mjs';
 import continueTarget from '../src/targets/continue.mjs';
 import env from '../src/targets/env.mjs';
-import { parseTargetSelection } from '../src/targets/index.mjs';
+import { parseTargetSelection, TARGETS } from '../src/targets/index.mjs';
 import { executePlan } from '../src/core/run.mjs';
 import { applyWrites } from '../src/core/apply.mjs';
 
@@ -188,8 +188,8 @@ describe('interactive target selection', () => {
   it('parses indexes, ids and all into target objects', () => {
     assert.deepEqual(parseTargetSelection('1,3').map((t) => t.id), ['zcode', 'claude-code']);
     assert.deepEqual(parseTargetSelection('opencode env').map((t) => t.id), ['opencode', 'env']);
-    assert.equal(parseTargetSelection('all').length, 8);
-    assert.equal(parseTargetSelection('a').length, 8);
+    assert.equal(parseTargetSelection('all').length, TARGETS.length);
+    assert.equal(parseTargetSelection('a').length, TARGETS.length);
   });
 
   it('ignores unknown tokens and de-duplicates', () => {

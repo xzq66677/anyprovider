@@ -82,7 +82,8 @@ Required
   --key-file <path>     file containing the API key (preferred)
   --key <key>           API key inline (visible in shell history)
                         or set ANYPROVIDER_API_KEY / OPENAI_API_KEY
-  --target <ids>        comma separated, or "all" (omit to be asked interactively)
+  --target <ids>        comma separated; "all" = every adapter, "installed" = found on disk
+                        omit to be asked interactively
 
 Discovery
   --model <ids>         comma separated model ids (when /models is missing)
@@ -139,6 +140,12 @@ Probe only, see what the gateway claims, write nothing:
 node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt --target env
 ```
 
+One key into every harness found on disk (dry run first, add `--write` to apply):
+
+```bash
+node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt --target installed
+```
+
 A gateway with no `/models` endpoint, where you know the ids:
 
 ```bash
@@ -170,7 +177,7 @@ node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt \
 
 ## Wizard
 
-The wizard is the same engine without flags — it asks for the base URL, the key (masked), a name, then shows the models and lets you pick targets.
+The wizard is the same engine without flags — it first asks which harnesses the key is for, then the base URL, the key (masked), a name, then shows the models and applies everything in one confirmation.
 
 ```bash
 node src/wizard.mjs
@@ -180,7 +187,7 @@ anyprovider-wizard
 
 The wizard has no flags — just run it and answer. Its prompts are currently in Chinese.
 
-Flow: base URL → key → display name → probe → model table with a selection prompt (`enter` = all, `1,3-5` = indexes, `M id1,id2` = manual, `Q` = quit) → target menu (defaults to the targets whose config files already exist on disk) → preview of every file to be written → one confirmation → apply.
+Flow: **target menu first** (which harnesses is this key for? multi-select by index or id, `enter` = the ones whose config files already exist on disk, `A` = all) → base URL → key → display name → probe → model table with a selection prompt (`enter` = all, `1,3-5` = indexes, `M id1,id2` = manual, `Q` = quit) → preview of every file to be written → **one confirmation applies the same key and base URL to every harness you picked**.
 
 On a terminal it waits for a final keypress so a double-clicked window does not disappear. Piped input works too: earlier-arriving lines are queued rather than dropped.
 

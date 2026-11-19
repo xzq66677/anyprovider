@@ -2,7 +2,7 @@
  * Human-readable reporting shared by the CLI and the wizard.
  */
 
-import { bullet, dim, green, note, say, table, yellow } from './format.mjs';
+import { bullet, dim, green, mask, note, red, say, table, yellow } from './format.mjs';
 
 /** Compact, human-readable vision label with colour. */
 export function visionText(vision) {
@@ -71,3 +71,48 @@ export function printResults(results) {
     if (r.backedUp) note(`    backup: ${r.backedUp}`);
   }
 }
+
+/** Human colour/label for a key-health status. */
+export function healthText(h) {
+  if (!h) return dim('未检测');
+  const map = {
+    valid: green('✓ 有效'),
+    invalid: red('✗ 失效'),
+    unknown: yellow('? 未知'),
+    env: yellow('$ 环境变量'),
+    unchecked: dim('未检测'),
+  };
+  return map[h.status] || dim(h.status || '未检测');
+}
+
+/**
+ * Print the key inventory table. Each row is one credential, with the
+ * platforms/hosts and the harnesses it appears in.
+ */
+export function printKeyInventory(entries, { checked = false } = {}) {
+  say('');
+  if (!entries.length) {
+    note('  本机没有找到已存的 API Key。先用向导导入一个，或用 --key-save 存进 Key 库。');
+    say('');
+    return;
+  }
+  table(
+    ['#', '平台', 'Key', '状态', '来自'],
+    entries.map((e, i) => [
+      String(i + 1),
+      e.platform || '未知',
+      e.apiKey ? mask(e.apiKey) : (e.keyEnv ? `$${e.keyEnv}` : '-'),
+      healthText(e.health),
+      e.sources.join('、'),
+    ]),
+  );
+  say('');
+  for (const e of entries) {
+    if (e.health?.detail) note(`   ${e.platform}: ${dim(e.health.detail)}${e.health.cached ? dim('（缓存）') : ''}`);
+  }
+  say('');
+  note('   检测用的是 GET /models（只验鉴权、不生成内容、通常免费）；结果缓存 24h，不会每次都发请求。');
+  if (!checked) note('   现在只显示缓存/未检测。加 --check 才发请求；--force 忽略缓存强制重测。');
+  say('');
+}
+

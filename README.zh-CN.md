@@ -245,8 +245,47 @@ Key 可以复用。写入成功后向导会问你要不要存进 Key 库（由�
 ```bash
 node src/cli.mjs --key-list
 node src/cli.mjs --key-from "我的中转" --target zcode --write
-node src/cli.mjs --base https://api.example.com/v1 --key sk-... --name "我的中转" --target zcode --key-save
+node src/cli.mjs --base https://api.example.com/v1 --key sk-... --name "我的中转" --key-save
 ```
+
+## Key 盘点 —— 存了哪些 Key，还能不能用？
+
+时间一长，同一把 Key 可能散落在好几个 harness 配置里，加上 Key 库。`--keys-status` 把它们全部读回来（**只读，不改任何文件**），按凭证归并，告诉你每把指向哪个平台、存在哪几处。
+
+```bash
+node src/cli.mjs --keys-status                    # 列出已存 Key（只看缓存，不发请求）
+node src/cli.mjs --keys-status --check            # 顺便检测有效性
+node src/cli.mjs --keys-status --check --force    # 忽略缓存强制重测
+node src/cli.mjs --keys-status --check --json     # 机器可读输出
+```
+
+示例输出：
+
+```
+ 1 已存 Key 一览（含有效性检测）
+
+   #  平台             Key                      状态    来自
+   1  api.aiboys.xyz   sk-b****12b6             ✓ 有效  ZCode (provider_config.json)、Key 库
+   2  api.emooo.cc     sk-9****7e5c             ✗ 失效  ZCode (provider_config.json)
+   3  api.openai.com   $OPENAI_API_KEY          $ 环境变量  opencode (opencode.json)
+```
+
+- **平台** 取自 base URL 的域名；没存地址的显示 `未知`。
+- **来自** 列出持有这把 Key 的每一个 harness（以及 Key 库）——一眼就能看出一把 Key 被复用在几处。
+- **$ 环境变量** 表示这个 harness 故意不把 Key 写进配置文件（Zed、新版 opencode、DeepSeek Harness）。这类 Key 无法读取也无法检测，只显示环境变量名。
+- Key 一律脱敏，原始 Key 永远不会打印出来。
+
+### 经常检测会花很多钱吗？几乎不花钱。
+
+有效性检测用的是 **`GET /models`** —— 这个请求只验鉴权、列出模型 id，**不生成任何 token**，所以几乎所有网关都是免费的。为了测一把 Key，绝不会发 completion、推理或图片请求。状态判定：`200` → `✓ 有效`，`401/403` → `✗ 失效`，`429` → 有效但被限流，其他 → `? 未知`（不瞎猜）。
+
+为了更省钱，还做了三层保护：
+
+- 结果带时间戳缓存到 `~/.anyprovider/key-health.json`，**TTL 默认 24 小时**（`--check-ttl <小时>` 可改）。单独跑 `--keys-status` 永远不发请求，只读缓存。
+- 即使加了 `--check`，缓存还新鲜的条目也**不会重测**，只测过期或没测过的。想全部重测才用 `--force`。
+- 只对去重后的唯一凭证发请求 —— 同一把 Key 在五个 harness 里复用，也只花一次请求。
+
+向导里也有同样功能：终端主菜单选 **2 查看 / 检测已存的 Key**，或运行 `node src/wizard.mjs --keys-status [--check]`。
 
 ## 视觉能力探测
 

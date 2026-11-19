@@ -109,6 +109,12 @@ Key vault (~/.anyprovider/keys.json)
                         also supplies --base when it is omitted
   --key-save            save this key under --name (or the host) for reuse
 
+Key inventory
+  --keys-status         list keys stored in local harnesses + vault
+  --check               with --keys-status: probe validity via free GET /models
+  --force               ignore the 24h cache and re-check
+  --check-ttl <hours>   cache lifetime in hours (default 24)
+
 Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litellm  aider  zed  vscode-copilot  windsurf  env
 ```
 
@@ -120,6 +126,9 @@ Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litell
 | `--key-list` | List saved keys (alias, base URL, masked key). No gateway probe is made. |
 | `--key-from` | Take key (and, if `--base` is omitted, the base URL) from the vault by alias, id or 1-based index. Explicit `--key-file` / `--key` still win. |
 | `--key-save` | Save the key used in this run into the vault under `--name` (or the host). |
+| `--keys-status` | List every key stored in local harness configs + vault, grouped by credential with platform and status. Read-only. |
+| `--check` | With `--keys-status`: probe validity via free `GET /models`. Without it only the cache is shown. |
+| `--force`, `--check-ttl <hours>` | Re-check despite a fresh cache / set cache lifetime (default 24h). |
 | `ANYPROVIDER_API_KEY`, `OPENAI_API_KEY` | Read only when neither `--key-file`, `--key` nor `--key-from` is given. |
 | `--target` | Comma or space separated ids, or `all`. `--list-targets` prints the ids. **Omit it and the CLI asks you which tool to import into** (see [Interactive target selection](#interactive-target-selection)). |
 | `--model` | Used twice: supplies ids when `/models` is empty, and restricts which discovered models get written. |
@@ -247,6 +256,45 @@ node src/cli.mjs --key-list
 node src/cli.mjs --key-from "My Gateway" --target zcode --write
 node src/cli.mjs --base https://api.example.com/v1 --key sk-... --name "My Gateway" --target zcode --key-save
 ```
+
+## Key inventory — what's stored, and is it still alive?
+
+Over time the same key can end up in several harness configs plus the vault. `--keys-status` reads them all back (read-only — nothing is modified), groups them by credential, and tells you which platform each points at and where it's stored.
+
+```bash
+node src/cli.mjs --keys-status           # list stored keys (cached status only, no requests)
+node src/cli.mjs --keys-status --check   # also probe validity
+node src/cli.mjs --keys-status --check --force   # ignore the cache and re-check
+node src/cli.mjs --keys-status --check --json    # machine-readable
+```
+
+Example output:
+
+```
+ 1 已存 Key 一览（含有效性检测）
+
+   #  平台             Key                      状态    来自
+   1  api.aiboys.xyz   sk-b****12b6             ✓ 有效  ZCode (provider_config.json)、Key 库
+   2  api.emooo.cc     sk-9****7e5c             ✗ 失效  ZCode (provider_config.json)
+   3  api.openai.com   $OPENAI_API_KEY          $ 环境变量  opencode (opencode.json)
+```
+
+- **Platform** is derived from the base URL's host. Keys with no stored URL show `未知`.
+- **来自** lists every harness (and the vault) that holds this exact credential — so you can see at a glance that one key is reused in three places.
+- **$ 环境变量** means the harness deliberately keeps the key out of its config file (Zed, current opencode, DeepSeek Harness). We can't read or probe those; the env var name is shown instead.
+- Keys are masked; the raw key is never printed.
+
+### Does frequent checking cost money? Almost nothing.
+
+Validity is checked with **`GET /models`** — a request that only authenticates and lists model ids. It **generates no tokens**, so on virtually every gateway it is free. No completion, no reasoning, no image is ever sent just to test a key. Status mapping: `200` → `✓ 有效`, `401/403` → `✗ 失效`, `429` → valid but rate-limited, anything else → `? 未知` (we don't guess).
+
+To keep it even cheaper:
+
+- Results are cached in `~/.anyprovider/key-health.json` with a timestamp and a **24-hour TTL** (`--check-ttl <hours>` to change it). A plain `--keys-status` never sends a request — it only reads the cache.
+- Even with `--check`, entries whose cache is still fresh are **not re-probed**; only stale or missing ones are. Use `--force` to deliberately re-check everything.
+- Only unique credentials are probed — the same key reused in five harnesses costs one request, not five.
+
+The wizard has the same feature: on a terminal its main menu offers **2 查看 / 检测已存的 Key**, or run `node src/wizard.mjs --keys-status [--check]`.
 
 ## Vision capability probing
 

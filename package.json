@@ -18,7 +18,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/probe.test.mjs test/targets.test.mjs test/targets-new.test.mjs",
+    "test": "node --test test/probe.test.mjs test/targets.test.mjs test/targets-new.test.mjs test/keys.test.mjs",
     "start": "node src/cli.mjs",
     "wizard": "node src/wizard.mjs",
     "mock": "node test/serve-mock.mjs"

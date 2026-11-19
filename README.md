@@ -103,6 +103,12 @@ Output
   --interactive         ask for the import target even without a TTY
   --list-targets        show supported harnesses
 
+Key vault (~/.anyprovider/keys.json)
+  --key-list            list saved keys (masked)
+  --key-from <ref>      use a saved key by alias, id or 1-based index
+                        also supplies --base when it is omitted
+  --key-save            save this key under --name (or the host) for reuse
+
 Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litellm  aider  zed  vscode-copilot  windsurf  env
 ```
 
@@ -110,8 +116,11 @@ Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litell
 |---|---|
 | `--base` | Required. Scheme is added if missing (`https://`), trailing slashes are stripped, `/v1` is optional. |
 | `--key-file` | Required unless you use `--key` or the env vars. First line of the file, trimmed. |
-| `--key` | Inline key. Convenient, and visible in `ps` / shell history — prefer `--key-file`. |
-| `ANYPROVIDER_API_KEY`, `OPENAI_API_KEY` | Read only when neither `--key-file` nor `--key` is given. |
+| `--key` | Inline key. Convenient, and visible in `ps` / shell history — prefer `--key-file` or the vault. |
+| `--key-list` | List saved keys (alias, base URL, masked key). No gateway probe is made. |
+| `--key-from` | Take key (and, if `--base` is omitted, the base URL) from the vault by alias, id or 1-based index. Explicit `--key-file` / `--key` still win. |
+| `--key-save` | Save the key used in this run into the vault under `--name` (or the host). |
+| `ANYPROVIDER_API_KEY`, `OPENAI_API_KEY` | Read only when neither `--key-file`, `--key` nor `--key-from` is given. |
 | `--target` | Comma or space separated ids, or `all`. `--list-targets` prints the ids. **Omit it and the CLI asks you which tool to import into** (see [Interactive target selection](#interactive-target-selection)). |
 | `--model` | Used twice: supplies ids when `/models` is empty, and restricts which discovered models get written. |
 | `--protocol` | Restricts and reorders protocol detection, e.g. `--protocol anthropic` for a gateway you know is Anthropic-native. |
@@ -187,7 +196,7 @@ anyprovider-wizard
 
 The wizard has no flags — just run it and answer. Its prompts are currently in Chinese.
 
-Flow: **target menu first** (only harnesses whose config files exist on this machine are listed; multi-select by the displayed number or id, `enter` = all listed, `A` = all) → base URL → key → display name → probe → model table with a selection prompt (`enter` = all, `1,3-5` = indexes, `M id1,id2` = manual, `Q` = quit) → preview of every file to be written → **one confirmation applies the same key and base URL to every harness you picked**.
+Flow: **target menu first** (only harnesses whose config files exist on this machine are listed; one key can go into every harness you pick) → **key source** (new key / saved key / manage vault) → base URL → key → display name (new keys only) → probe → model table with a selection prompt (`enter` = all, `1,3-5` = indexes, `M id1,id2` = manual, `Q` = quit) → preview of every file to be written → **one confirmation applies the same key and base URL to every harness you picked**.
 
 **The display name is yours.** The prompt starts empty — type whatever you want. Pressing `enter` accepts the gateway host as a suggestion. If what you type looks like an API key, the wizard warns but keeps your text and asks whether to keep it or retype; it never silently substitutes a different name.
 
@@ -216,6 +225,28 @@ node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt
 - **`--list-targets`** prints every id if you want to see what exists beyond the local menu.
 
 The wizard uses the same "你目前需要向哪个里面导入？" step and the same answer syntax. In non-interactive shells (CI, pipes) with no `--target`, the CLI still exits `2` rather than hanging — pass `--interactive` to force the prompt, or `--target` to stay fully scripted. `--json` always requires an explicit `--target` so machine output stays deterministic.
+
+## Managing your API keys
+
+A key is reusable. After a successful import the wizard asks whether to save it; the CLI does the same with `--key-save`. Saved keys live in `~/.anyprovider/keys.json` (next to the discovery registry) and carry an alias, base URL and the key.
+
+The file contains **plaintext keys** — keep it private. Writes are atomic, a timestamped backup is kept, and permissions are tightened where the OS supports it. Set `ANYPROVIDER_HOME` to relocate the whole folder. A damaged file is never overwritten: the tool stops with an error instead of losing your keys.
+
+At the wizard's "这个 Key 从哪来？" step:
+
+```
+1  输入一个新 Key          base URL → key → display name; save it after the write
+2  用已保存的 Key           pick by number; base URL, key and name come back, straight to probing
+3  管理 Key 库             r<number> rename, d<number> delete (with confirmation), enter = back
+```
+
+Either way the chosen key is written into **every harness selected in step 1** — one key, many harnesses, one confirmation.
+
+```bash
+node src/cli.mjs --key-list
+node src/cli.mjs --key-from "My Gateway" --target zcode --write
+node src/cli.mjs --base https://api.example.com/v1 --key sk-... --name "My Gateway" --target zcode --key-save
+```
 
 ## Vision capability probing
 

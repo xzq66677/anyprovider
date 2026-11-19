@@ -9,13 +9,14 @@
  * would change.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { DEFAULTS, discover } from './core/probe.mjs';
 import { providerIdFromHost } from './core/endpoints.mjs';
 import { executePlan } from './core/run.mjs';
+import { createPrompt } from './core/prompt.mjs';
 import { printDiscovery, printModels, printNotes, printResults, printSnippet } from './core/report.mjs';
-import { TARGETS, TARGET_IDS, resolveTargets, supportsProtocol } from './targets/index.mjs';
-import { bold, cyan, dim, fail, green, say, step, warn } from './core/format.mjs';
+import { TARGETS, TARGET_IDS, resolveTargets, parseTargetSelection, supportsProtocol } from './targets/index.mjs';
+import { bold, cyan, dim, fail, green, note, say, step, table, warn } from './core/format.mjs';
 
 const VERSION = '0.1.0';
 
@@ -48,11 +49,13 @@ function usage() {
   say('    --key <key>           API key inline (visible in shell history)');
   say('                          or set ANYPROVIDER_API_KEY / OPENAI_API_KEY');
   say('    --target <ids>        comma separated, or "all"');
+  say('                          omit to be asked which tool to import into');
   say('');
   say(`  ${cyan('Discovery')}`);
   say('    --model <ids>         comma separated model ids (when /models is missing)');
   say('    --protocol <list>     restrict detection to chat,responses,anthropic');
   say('    --sample <n>          models to reasoning-probe (default 3, 0 = skip)');
+  say('    --vision-sample <n>   models to image-probe (default 3, 0 = skip)');
   say('    --deep                probe every model individually (slow, thorough)');
   say('    --default-context <n> context window when the gateway reports none (128000)');
   say('    --default-maxout <n>  max output when it cannot be probed (32000)');
@@ -63,6 +66,7 @@ function usage() {
   say('    --name <text>         display name (default: host)');
   say('    --id <text>           provider id (default: derived from host)');
   say('    --json                machine-readable discovery output');
+  say('    --interactive         ask for the import target even without a TTY');
   say('    --list-targets        show supported harnesses');
   say('');
   say(`  ${cyan('Targets')}  ${TARGET_IDS.join('  ')}`);
@@ -79,6 +83,42 @@ async function readKey(args) {
   return (process.env.ANYPROVIDER_API_KEY || process.env.OPENAI_API_KEY || '').trim();
 }
 
+/**
+ * Ask which harness to import into. Shared by the CLI (when --target is
+ * omitted) so a terminal user gets the same guided experience as the wizard.
+ * Accepts indexes, ids, "all", or an empty answer for the detected defaults.
+ */
+export async function chooseTargets({ question, input, output } = {}) {
+  const prompt = createPrompt({ input, output });
+  const { ask } = prompt;
+  try {
+    say('');
+    table(
+      ['#', 'id', 'tool', 'config', 'status'],
+      TARGETS.map((t, i) => {
+        let path = '-';
+        let state = dim('-');
+        try {
+          path = t.defaultPath({ env: process.env });
+          state = existsSync(path) ? green('installed') : dim('not found');
+        } catch { /* keep defaults */ }
+        return [String(i + 1), t.id, t.label, path, state];
+      }),
+    );
+    say('');
+    note('   Enter = the "installed" ones   1,3-5 = indexes   all = every tool');
+    const installed = TARGETS.filter((t) => {
+      try { return existsSync(t.defaultPath({ env: process.env })); } catch { return false; }
+    });
+    const fallback = installed.length ? installed.map((t) => t.id) : ['env'];
+    const answer = await ask(cyan(question || '   › Which tool should I import into?'), fallback.join(' '));
+
+    return parseTargetSelection(answer);
+  } finally {
+    prompt.close();
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help || args.h) { usage(); return 0; }
@@ -93,10 +133,6 @@ async function main() {
   if (args.version || args.v) { say(VERSION); return 0; }
 
   if (!args.base) { fail('\n  --base is required\n'); usage(); return 2; }
-  if (!args.target) {
-    fail('\n  --target is required (use --list-targets to see them, or "all")');
-    return 2;
-  }
 
   const apiKey = await readKey(args);
   if (!apiKey) {
@@ -104,8 +140,18 @@ async function main() {
     return 2;
   }
 
-  const targets = resolveTargets(args.target);
   const quiet = !!args.json;
+  let targets;
+  if (args.target) {
+    targets = resolveTargets(args.target);
+  } else if (!quiet && (process.stdin.isTTY || args.interactive)) {
+    const picked = await chooseTargets({ question: '   › 你目前需要向哪个里面导入？' });
+    if (!picked.length) { fail('\n  No target selected.'); return 2; }
+    targets = picked;
+  } else {
+    fail('\n  --target is required (use --list-targets to see them, "all", or run without it to be asked)');
+    return 2;
+  }
 
   const discovery = await discover({
     baseUrl: args.base,
@@ -113,6 +159,7 @@ async function main() {
     modelIds: args.model ? String(args.model).split(/[,\s]+/).filter(Boolean) : [],
     protocols: args.protocol ? String(args.protocol).split(/[,\s]+/).filter(Boolean) : undefined,
     sample: args.sample !== undefined ? Number(args.sample) : DEFAULTS.sample,
+    visionSample: args.visionSample !== undefined ? Number(args.visionSample) : DEFAULTS.visionSample,
     deep: !!args.deep,
     timeout: args.timeout ? Number(args.timeout) : DEFAULTS.timeout,
     defaults: {
@@ -123,6 +170,7 @@ async function main() {
       if (kind === 'models') warn(`  models: ${payload.count} from ${payload.url}`);
       if (kind === 'protocol-attempt' && payload.ok) warn(`  protocol: ${payload.protocol} (${payload.url})`);
       if (kind === 'max-output') warn(`  max output: ${payload.ceiling ?? 'unknown'} (applies to ${payload.appliesTo})`);
+      if (kind === 'vision') warn(`  vision: ${payload.model} → ${payload.supported === true ? 'yes' : payload.supported === false ? 'no' : 'unknown'}`);
     },
   });
 

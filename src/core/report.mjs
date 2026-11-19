@@ -4,6 +4,14 @@
 
 import { bullet, dim, green, note, say, table, yellow } from './format.mjs';
 
+/** Compact, human-readable vision label with colour. */
+export function visionText(vision) {
+  if (vision === 'yes') return green('yes');
+  if (vision === 'no') return yellow('no');
+  if (vision === 'unknown') return yellow('unknown');
+  return dim('not probed');
+}
+
 export function printDiscovery(discovery) {
   say('');
   say(`  ${dim('base URL')}  ${discovery.baseUrl}`);
@@ -14,18 +22,30 @@ export function printDiscovery(discovery) {
   } else {
     say(`  ${dim('reasoning')} ${yellow('none accepted')}`);
   }
+  const visionParts = Object.entries(discovery.visionVotes || {});
+  if (visionParts.length) {
+    const summary = visionParts.map(([k, v]) => `${k}:${v}`).join('  ');
+    say(`  ${dim('vision   ')} ${discovery.providerVision ? green(providerVisionText(discovery.providerVision)) : yellow('mixed/unknown')}  ${dim(`(${summary})`)}`);
+  } else {
+    say(`  ${dim('vision   ')} ${dim('not probed')}`);
+  }
+}
+
+function providerVisionText(v) {
+  return v === 'yes' ? 'some models accept images' : 'most models reject images';
 }
 
 export function printModels(models) {
   say('');
   table(
-    ['#', 'model id', 'context', 'max out', 'reasoning'],
+    ['#', 'model id', 'context', 'max out', 'reasoning', 'vision'],
     models.map((m, i) => [
       String(i + 1),
       m.id,
       String(m.contextWindow),
       String(m.maxOutputTokens),
       m.reasoning || '-',
+      visionText(m.vision),
     ]),
   );
 }

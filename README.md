@@ -23,7 +23,7 @@ anyprovider answers all four by talking to the gateway, then emits the file each
 
 ## What it does
 
-One probe run produces a per-model record — id, context window, max output, reasoning parameter — and each target adapter turns that into its own file format.
+One probe run produces a per-model record — id, context window, max output, reasoning parameter and vision support — and each target adapter turns that into its own file format.
 
 It does not read vendor documentation, and it does not assume `/models` is honest: the reasoning knob and the output ceiling are established by sending a few very small real requests and observing what the gateway accepts and what it says when you ask for too much.
 
@@ -82,12 +82,13 @@ Required
   --key-file <path>     file containing the API key (preferred)
   --key <key>           API key inline (visible in shell history)
                         or set ANYPROVIDER_API_KEY / OPENAI_API_KEY
-  --target <ids>        comma separated, or "all"
+  --target <ids>        comma separated, or "all" (omit to be asked interactively)
 
 Discovery
   --model <ids>         comma separated model ids (when /models is missing)
   --protocol <list>     restrict detection to chat,responses,anthropic
   --sample <n>          models to reasoning-probe (default 3, 0 = skip)
+  --vision-sample <n>   models to image-probe (default 3, 0 = skip)
   --deep                probe every model individually (slow, thorough)
   --default-context <n> context window when the gateway reports none (128000)
   --default-maxout <n>  max output when it cannot be probed (32000)
@@ -98,6 +99,7 @@ Output
   --name <text>         display name (default: host)
   --id <text>           provider id (default: derived from host)
   --json                machine-readable discovery output
+  --interactive         ask for the import target even without a TTY
   --list-targets        show supported harnesses
 
 Targets  zcode  opencode  claude-code  cline  continue  litellm  aider  env
@@ -109,11 +111,13 @@ Targets  zcode  opencode  claude-code  cline  continue  litellm  aider  env
 | `--key-file` | Required unless you use `--key` or the env vars. First line of the file, trimmed. |
 | `--key` | Inline key. Convenient, and visible in `ps` / shell history — prefer `--key-file`. |
 | `ANYPROVIDER_API_KEY`, `OPENAI_API_KEY` | Read only when neither `--key-file` nor `--key` is given. |
-| `--target` | Comma or space separated ids, or `all`. `--list-targets` prints the ids. |
+| `--target` | Comma or space separated ids, or `all`. `--list-targets` prints the ids. **Omit it and the CLI asks you which tool to import into** (see [Interactive target selection](#interactive-target-selection)). |
 | `--model` | Used twice: supplies ids when `/models` is empty, and restricts which discovered models get written. |
 | `--protocol` | Restricts and reorders protocol detection, e.g. `--protocol anthropic` for a gateway you know is Anthropic-native. |
 | `--sample` | How many models get the reasoning probe; models with missing metadata are picked first. `0` skips reasoning entirely. |
-| `--deep` | Probes reasoning and the output ceiling per model instead of once per gateway. Roughly one request per candidate knob per model. |
+| `--vision-sample` | How many models get the [vision probe](#vision-capability-probing). `0` skips it. Same sampling order as `--sample`. |
+| `--deep` | Probes reasoning, vision and the output ceiling per model instead of once per gateway. Roughly one request per candidate knob per model. |
+| `--interactive` | Force the target-selection prompt even when stdin is not a TTY (useful in scripts). |
 | `--default-context` | Fallback context window when `/models` reports none. |
 | `--default-maxout` | Fallback output ceiling when the overshoot probe yields nothing. |
 | `--timeout` | Per-request timeout in milliseconds. |
@@ -180,6 +184,77 @@ Flow: base URL → key → display name → probe → model table with a selecti
 
 On a terminal it waits for a final keypress so a double-clicked window does not disappear. Piped input works too: earlier-arriving lines are queued rather than dropped.
 
+## Interactive target selection
+
+You do not have to know the target ids up front. Leave `--target` off and, on a terminal, the CLI shows the target menu and asks where to import:
+
+```bash
+node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt
+```
+
+```
+   #  id           tool         config                                   status
+   1  zcode        ZCode        ~/.zcode/v2/provider_config.json         installed
+   2  opencode     opencode     ~/.config/opencode/opencode.json         not found
+   ...
+   8  env          Generic      ~/.anyprovider/providers.json            installed
+
+   Enter = the "installed" ones   1,3-5 = indexes   all = every tool
+   › 你目前需要向哪个里面导入？ [zcode opencode env]
+```
+
+- **Enter** picks the targets whose config files already exist on disk (falls back to `env`).
+- **Indexes / ids** — `1,3-5`, `opencode env`, `2 2 nope` (unknown tokens ignored, duplicates removed).
+- **`all` / `a`** — every adapter.
+
+The wizard uses the same "写进哪些工具？" step and the same answer syntax. In non-interactive shells (CI, pipes) with no `--target`, the CLI still exits `2` rather than hanging — pass `--interactive` to force the prompt, or `--target` to stay fully scripted. `--json` always requires an explicit `--target` so machine output stays deterministic.
+
+## Vision capability probing
+
+Whether a model accepts images is learned empirically, not from a static capability flag. For each sampled model the probe sends a tiny inline 1×1 PNG through the detected protocol — an `image_url` block for chat, `input_image` for responses, an `image` source for Anthropic — and reads the verdict:
+
+| Result | Meaning |
+|---|---|
+| `yes` | The request with the image was accepted (with image-token usage recorded as evidence when echoed). |
+| `no` | The image was rejected, but a text-only control request with the same shape succeeded — so it was the image, not the format. |
+| `unknown` | Inconclusive (network/auth error, or the gateway rejects all content arrays). |
+
+Sampling defaults to 3 models (`--vision-sample`), following the same order as reasoning: models with missing `/models` metadata first. `--deep` probes every model. A strict majority becomes the provider-wide default printed in the summary; a tie stays unassigned so no model inherits a guess. Each row's vision value is stored in `--json` and, for ZCode, drives the generated `inputFormat.supportsImage` (unprobed models stay conservative at `false` unless the provider voted `yes`).
+
+```bash
+node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt \
+  --target zcode --vision-sample 5
+```
+
+Human output — note the `vision` column and the summary line:
+
+```
+   format    openai-chat-completions
+   reasoning reasoning_effort
+   vision    mixed/unknown  (no:1  yes:1)
+
+   #  model id    context  max out  reasoning         vision
+   1  gpt-4o      128000   16384    reasoning_effort  yes
+   2  gpt-4o-mini 128000   16384    -                 no
+
+   · Vision probed on 2 model(s): 1 accept images, 1 reject them (unknown = inconclusive).
+```
+
+The same fields appear in `--json`:
+
+```json
+{
+  "providerVision": null,
+  "visionVotes": { "yes": 1, "no": 1 },
+  "models": [
+    { "id": "gpt-4o", "vision": "yes", "visionEvidence": ["image_tokens=1"] },
+    { "id": "gpt-4o-mini", "vision": "no", "visionEvidence": [] }
+  ]
+}
+```
+
+Use `--vision-sample 0` to skip the extra requests entirely.
+
 ## Supported targets
 
 | id | Tool | File written | Safe merge? | Protocols |
@@ -212,7 +287,7 @@ Details per target — exact keys, path overrides, restart requirements — are 
 
 ## How the probing works
 
-Four steps, each empirical.
+Five steps, each empirical.
 
 **1. Model list.** `GET {base}/models` is attempted against the base URL as given and against a version-stripped variant, plus `/v1` appended where it is missing — gateways are inconsistent about whether the base URL includes the version segment. The first 200 with a non-empty list wins. A 401/403 aborts immediately instead of retrying every candidate.
 
@@ -228,16 +303,18 @@ Four steps, each empirical.
 
 A knob that is accepted is kept, and the probe also records whether the gateway echoes any reasoning payload back (`reasoning_content`, `thinking` blocks, `reasoning_tokens`); a knob accepted with no echo at all is marked silent in the `--json` output. By default three models are sampled (preferring the ones whose `/models` entry lacks metadata) and the majority result becomes the provider-wide default; `--deep` probes every model. A model that was probed and rejected every knob is recorded as *no reasoning* and does not inherit the provider-wide winner.
 
-**4. Output ceiling.** `/models` metadata is used when present (`max_completion_tokens`, `max_output_tokens`, `max_tokens`). Otherwise the probe deliberately overshoots with `max_tokens: 1000000`; the resulting 400 usually names the real limit, which is parsed out of the message and bounded below the overshoot value. One such probe covers every model missing a ceiling; `--deep` probes per model. Context windows come from `context_length` / `context_window` / `max_context_length` / `max_model_len`, falling back to `--default-context`.
+**4. Vision.** A tiny inline 1×1 PNG is sent in the detected protocol's native image shape. An accepted image means `yes`; a rejection is compared against a text-only control to tell "no vision" from "unsupported content format"; anything ambiguous is `unknown`. By default three models are sampled and a strict majority becomes the provider default — see [Vision capability probing](#vision-capability-probing).
+
+**5. Output ceiling.** `/models` metadata is used when present (`max_completion_tokens`, `max_output_tokens`, `max_tokens`). Otherwise the probe deliberately overshoots with `max_tokens: 1000000`; the resulting 400 usually names the real limit, which is parsed out of the message and bounded below the overshoot value. One such probe covers every model missing a ceiling; `--deep` probes per model. Context windows come from `context_length` / `context_window` / `max_context_length` / `max_model_len`, falling back to `--default-context`.
 
 Everything learned lands in one object, exposed verbatim by `--json`.
 
 ## Limitations
 
 - **Three protocols only.** OpenAI chat completions, OpenAI responses, and Anthropic messages. No native Gemini, Bedrock or Cohere protocols.
-- **Capabilities are not probed.** Whether a model accepts images, video, PDFs, native web search or JSON-schema output is never tested. Adapters write conservative defaults (`supportsImage: false`, `supportsNativeWebSearch: false` in ZCode), so turn capabilities on by hand if the model has them.
+- **Only vision is capability-probed.** Image input is detected (see [Vision capability probing](#vision-capability-probing)); video, PDFs, native web search and JSON-schema output are still assumed off. Adapters write conservative defaults (`supportsVideo: false`, `supportsPdf: false`, `supportsNativeWebSearch: false` in ZCode), so turn those on by hand if the model has them.
 - **Model-specific quirks are averaged.** One reasoning parameter per provider unless you pass `--deep`; a gateway that mixes reasoning and non-reasoning models behind one endpoint may need `--deep`.
-- **Probing costs requests.** Each run sends a handful of small completions; `--deep` sends roughly one request per candidate knob per model. `--sample 0` skips the reasoning probe entirely.
+- **Probing costs requests.** Each run sends a handful of small completions; `--deep` sends roughly one request per candidate knob per model. `--sample 0` skips the reasoning probe, `--vision-sample 0` skips the vision probe.
 - **opencode's current schema stores credentials in the environment.** The modern `providers` shape references an env var name, not the key, so the adapter prints the `export` / `setx` line you must run before launching opencode. Only the legacy `provider` shape takes an inline `apiKey`.
 - **YAML targets never merge.** Continue, LiteLLM and aider get a full file only when none exists; otherwise you get a `.anyprovider.<ext>` suggestion to paste from. YAML lists cannot be appended to safely.
 - **`--target all` writes to your working directory.** The `litellm` target resolves to `./litellm.config.yaml` relative to where you run it, and `env` keeps a copy of the key under `~/.anyprovider/providers.json`.
@@ -268,7 +345,7 @@ Rules: return text, never write; throw rather than emit something you know is in
 ## Development
 
 ```bash
-npm test        # node --test test/
+npm test        # node --test test/probe.test.mjs test/targets.test.mjs
 ```
 
 The suite uses a local mock gateway (`test/mock-gateway.mjs`) and writes into a temp directory; it never touches a real config. CI runs the same command on Ubuntu, Windows and macOS against Node 18, 20 and 22.

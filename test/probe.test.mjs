@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { startMock } from './mock-gateway.mjs';
 import { discover, DEFAULTS } from '../src/core/probe.mjs';
 import { endpointCandidates, normalizeBase, providerIdFromHost } from '../src/core/endpoints.mjs';
+import { visionBody, isVisionRejection, TINY_PNG_DATA_URL } from '../src/core/vision.mjs';
 
 let mock;
 
@@ -74,5 +75,72 @@ describe('discover', () => {
     const result = await discover({ baseUrl: mock.url, apiKey: mock.key, sample: 0 });
     assert.equal(result.providerReasoning, null);
     assert.ok(result.models.every((m) => m.reasoning === null));
+  });
+
+  it('probes vision per model and votes on the provider default', async () => {
+    const events = [];
+    const result = await discover({ baseUrl: mock.url, apiKey: mock.key, onEvent: (k, p) => {
+      if (k === 'vision') events.push(p);
+    } });
+
+    const think = result.models.find((m) => m.id === 'mock-think');
+    const plain = result.models.find((m) => m.id === 'mock-plain');
+    assert.equal(think.vision, 'yes', 'the vision model accepts a 1x1 PNG');
+    assert.ok(think.visionEvidence.length, 'image-token usage is kept as evidence');
+    assert.equal(plain.vision, 'no', 'the plain model rejects the image with a vision-shaped 400');
+    assert.equal(result.providerVision, null, 'a split vote has no provider-wide winner');
+    assert.equal(events.length, 2, 'one vision event per probed model');
+  });
+
+  it('votes a provider-wide yes when every probed model accepts images', async () => {
+    const allVision = await startMock({ visionModels: ['mock-think', 'mock-plain'] });
+    try {
+      const result = await discover({ baseUrl: allVision.url, apiKey: allVision.key });
+      assert.equal(result.providerVision, 'yes');
+      assert.ok(result.models.every((m) => m.vision === 'yes'));
+      assert.ok(result.notes.some((n) => n.includes('accept images')));
+    } finally {
+      await allVision.close();
+    }
+  });
+
+  it('can skip vision probing entirely', async () => {
+    const result = await discover({ baseUrl: mock.url, apiKey: mock.key, visionSample: 0 });
+    assert.equal(result.providerVision, null);
+    assert.deepEqual(result.visionVotes, {});
+    assert.ok(result.models.every((m) => m.vision === null));
+    assert.ok(result.notes.some((n) => n.includes('Vision probing was skipped')));
+  });
+});
+
+describe('vision probe bodies', () => {
+  it('builds an image block for each protocol', () => {
+    const chat = visionBody('chat', 'm');
+    assert.equal(chat.messages[0].content[1].type, 'image_url');
+    assert.match(chat.messages[0].content[1].image_url.url, /^data:image\/png;base64,/);
+
+    const resp = visionBody('responses', 'm');
+    assert.ok(resp.input[0].content.some((c) => c.type === 'input_image'));
+    assert.match(resp.input[0].content.find((c) => c.type === 'input_image').image_url, /^data:image\/png/);
+
+    const anth = visionBody('anthropic', 'm');
+    assert.equal(anth.messages[0].content[1].type, 'image');
+    assert.equal(anth.messages[0].content[1].source.media_type, 'image/png');
+  });
+
+  it('omits the image in the control request', () => {
+    const control = visionBody('chat', 'm', { withImage: false });
+    assert.equal(control.messages[0].content.length, 1);
+    assert.equal(control.messages[0].content[0].type, 'text');
+  });
+
+  it('recognises vision-shaped rejection messages', () => {
+    assert.equal(isVisionRejection('This model does not support image inputs'), true);
+    assert.equal(isVisionRejection('vision is not enabled for this endpoint'), true);
+    assert.equal(isVisionRejection('invalid request'), false);
+  });
+
+  it('uses a tiny inline PNG with no file dependency', () => {
+    assert.ok(TINY_PNG_DATA_URL.length < 200, 'the probe image stays tiny');
   });
 });

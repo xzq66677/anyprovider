@@ -10,7 +10,7 @@ import { DEFAULTS, discover } from './core/probe.mjs';
 import { normalizeBase, providerIdFromHost } from './core/endpoints.mjs';
 import { createPrompt } from './core/prompt.mjs';
 import { executePlan } from './core/run.mjs';
-import { TARGETS, supportsProtocol } from './targets/index.mjs';
+import { TARGETS, parseTargetSelection, supportsProtocol } from './targets/index.mjs';
 import { printNotes, printResults, printSnippet } from './core/report.mjs';
 import { banner, bold, cyan, dim, green, mask, note, say, step, table, warn } from './core/format.mjs';
 
@@ -92,6 +92,7 @@ async function main() {
       if (kind === 'protocol-attempt' && payload.ok) note(`   ✓ API 格式 ${payload.protocol}（${payload.url}）`);
       if (kind === 'max-output') note(`   ✓ 最大输出 ${payload.ceiling ?? '未知'}（影响 ${payload.appliesTo} 个模型）`);
       if (kind === 'reasoning' && payload.param) note(`   · ${payload.model} 接受 ${payload.param}`);
+      if (kind === 'vision') note(`   ${payload.supported === true ? '✓' : '·'} ${payload.model} 图像输入：${payload.supported === true ? '支持' : payload.supported === false ? '不支持' : '未知'}`);
     },
   });
 
@@ -120,9 +121,12 @@ async function main() {
   /* 5. selection */
   step(5, '要导入哪些模型？');
   say('');
+  const visionLabel = (v) => v === 'yes' ? '支持' : v === 'no' ? '不支持' : v === 'unknown' ? '未知' : '-';
   table(
-    ['#', '模型 ID', '上下文', '最大输出', '推理'],
-    discovery.models.map((m, i) => [String(i + 1), m.id, String(m.contextWindow), String(m.maxOutputTokens), m.reasoning || '-']),
+    ['#', '模型 ID', '上下文', '最大输出', '推理', '视觉'],
+    discovery.models.map((m, i) => [
+      String(i + 1), m.id, String(m.contextWindow), String(m.maxOutputTokens), m.reasoning || '-', visionLabel(m.vision),
+    ]),
   );
   say('');
   note('   回车 = 全部    1,3-5 = 指定序号    M 模型ID = 手工指定    Q = 退出');
@@ -171,11 +175,7 @@ async function main() {
   note('   空格或逗号分隔序号 / id，回车 = 上面状态为「已安装」的那些');
 
   const answer = await ask(cyan('   › 目标：'), fallback.join(' '));
-  const picked = [];
-  for (const part of String(answer).split(/[\s,，]+/).filter(Boolean)) {
-    const t = /^\d+$/.test(part) ? TARGETS[Number(part) - 1] : TARGETS.find((x) => x.id === part);
-    if (t && !picked.includes(t)) picked.push(t);
-  }
+  const picked = parseTargetSelection(answer);
   if (!picked.length) { warn('   没选任何目标，退出。'); return 1; }
 
   /* 7. preview + apply */

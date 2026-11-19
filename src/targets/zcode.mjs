@@ -152,7 +152,13 @@ export default {
           supportsJsonSchemaOutput: true,
           supportsNativeWebSearch: false,
           supportsMidConversationSystem: false,
-          inputFormat: { supportsImage: false, supportsVideo: false, supportsPdf: false },
+          // Driven by the vision probe: 'yes' when this model accepted an image,
+          // and inherited from the provider-wide vote only when never probed.
+          inputFormat: {
+            supportsImage: model.vision === 'yes' || (model.vision == null && discovery.providerVision === 'yes'),
+            supportsVideo: false,
+            supportsPdf: false,
+          },
         },
         optionSpecs: {
           maxOutputTokens: { max: model.maxOutputTokens },

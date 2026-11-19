@@ -10,7 +10,7 @@ import { DEFAULTS, discover } from './core/probe.mjs';
 import { normalizeBase, providerIdFromHost } from './core/endpoints.mjs';
 import { createPrompt } from './core/prompt.mjs';
 import { executePlan } from './core/run.mjs';
-import { TARGETS, parseTargetSelection, supportsProtocol } from './targets/index.mjs';
+import { TARGETS, installedTargets, parseTargetSelection, supportsProtocol } from './targets/index.mjs';
 import { printNotes, printResults, printSnippet } from './core/report.mjs';
 import { banner, bold, cyan, dim, green, mask, note, say, step, table, warn } from './core/format.mjs';
 
@@ -50,36 +50,34 @@ function parseSelection(answer, count) {
 async function main() {
   banner(`anyprovider ${VERSION}`, '从一个 API Key 开始，把供应商接进任何 harness');
 
-  /* 1. targets first — which harnesses is this key for? */
+  /* 1. targets first — only the harnesses actually present on this machine */
   step(1, '你目前需要向哪个里面导入？（可多选，稍后一键写入）');
+  const installed = installedTargets();
   say('');
-  table(
-    ['#', 'id', '工具', '状态'],
-    TARGETS.map((t, i) => {
-      let state = dim('—');
-      try {
-        state = existsSync(t.defaultPath({ env: process.env })) ? green('已安装') : dim('未找到');
-      } catch { /* keep defaults */ }
-      return [String(i + 1), t.id, t.label, state];
-    }),
-  );
-  const installed = TARGETS.filter((t) => {
-    try { return existsSync(t.defaultPath({ env: process.env })); } catch { return false; }
-  });
-  const fallback = installed.length ? installed.map((t) => t.id) : ['env'];
+  if (installed.length) {
+    table(
+      ['#', 'id', '工具', '配置文件'],
+      installed.map((t, i) => {
+        let path = '—';
+        try { path = t.defaultPath({ env: process.env }); } catch { /* keep defaults */ }
+        return [String(i + 1), t.id, t.label, path];
+      }),
+    );
+  } else {
+    note('   本机没检测到已安装的 harness（没找到任何配置文件）。');
+    note('   可直接输入 target id 或 A 指定目标；--list-targets 可查看全部 id。');
+  }
+  const fallback = installed.length ? installed.map((t) => t.id).join(' ') : '';
   say('');
-  note('   序号 / id，空格或逗号分隔可多选；回车 = 上面「已安装」的那些；A = 全部 12 个');
+  note('   上面只列本机已安装的 harness；序号 / id，空格或逗号分隔可多选');
+  note('   回车 = 上面列出的全部；A = 全部；也可输入 id 指定未安装的项');
 
   let picked = [];
   for (;;) {
-    const answer = await ask(cyan('   › 目标：'), fallback.join(' '));
+    const answer = await ask(cyan('   › 目标：'), fallback);
     const text = String(answer).trim();
     if (/^a(ll)?$/i.test(text) || text === '*') { picked = [...TARGETS]; break; }
-    picked = [];
-    for (const part of text.split(/[\s,，]+/).filter(Boolean)) {
-      const t = /^\d+$/.test(part) ? TARGETS[Number(part) - 1] : TARGETS.find((x) => x.id === part);
-      if (t && !picked.includes(t)) picked.push(t);
-    }
+    picked = parseTargetSelection(text, installed);
     if (picked.length) break;
     warn('   没选到任何目标，重输一次（例：1 3 或 zcode,opencode）');
   }
@@ -106,13 +104,20 @@ async function main() {
   if (!apiKey) { warn('   没填 Key，退出。'); return 1; }
   note(`   已收到 ${mask(apiKey)}`);
 
-  /* 4. name */
+  /* 4. name — the user owns this; never silently rewrite their answer */
   const host = (() => { try { return new URL(baseUrl).host; } catch { return 'api'; } })();
   step(4, '给这个供应商起个名字？');
-  let providerName = await ask(cyan('   › 显示名：'), host);
-  if (looksLikeKey(providerName, apiKey)) {
-    warn(`   这串看着像 API Key，不适合当名字，改用域名：${host}`);
+  note(`   名字由你定；直接回车才用域名建议值：${host}`);
+  let providerName = String(await ask(cyan('   › 显示名：'), '')).trim();
+  if (!providerName) {
     providerName = host;
+    note(`   用了建议值：${host}`);
+  } else if (looksLikeKey(providerName, apiKey)) {
+    warn(`   「${mask(providerName)}」看着像 API Key——名字你说了算，我就不替你改了。`);
+    const keep = String(await ask(cyan('   › 仍用它？回车=保留，n=重输：'), 'y')).trim();
+    if (/^n(o)?$/i.test(keep)) {
+      providerName = String(await ask(cyan('   › 显示名：'), host)).trim() || host;
+    }
   }
   const providerId = providerIdFromHost(baseUrl);
 

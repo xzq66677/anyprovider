@@ -9,13 +9,13 @@
  * would change.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { DEFAULTS, discover } from './core/probe.mjs';
 import { providerIdFromHost } from './core/endpoints.mjs';
 import { executePlan } from './core/run.mjs';
 import { createPrompt } from './core/prompt.mjs';
 import { printDiscovery, printModels, printNotes, printResults, printSnippet } from './core/report.mjs';
-import { TARGETS, TARGET_IDS, resolveTargets, parseTargetSelection, supportsProtocol } from './targets/index.mjs';
+import { TARGETS, TARGET_IDS, installedTargets, resolveTargets, parseTargetSelection, supportsProtocol } from './targets/index.mjs';
 import { bold, cyan, dim, fail, green, note, say, step, table, warn } from './core/format.mjs';
 
 const VERSION = '0.1.0';
@@ -92,28 +92,27 @@ export async function chooseTargets({ question, input, output } = {}) {
   const prompt = createPrompt({ input, output });
   const { ask } = prompt;
   try {
+    const found = installedTargets();
     say('');
-    table(
-      ['#', 'id', 'tool', 'config', 'status'],
-      TARGETS.map((t, i) => {
-        let path = '-';
-        let state = dim('-');
-        try {
-          path = t.defaultPath({ env: process.env });
-          state = existsSync(path) ? green('installed') : dim('not found');
-        } catch { /* keep defaults */ }
-        return [String(i + 1), t.id, t.label, path, state];
-      }),
-    );
+    if (found.length) {
+      table(
+        ['#', 'id', 'tool', 'config'],
+        found.map((t, i) => {
+          let path = '-';
+          try { path = t.defaultPath({ env: process.env }); } catch { /* keep defaults */ }
+          return [String(i + 1), t.id, t.label, path];
+        }),
+      );
+    } else {
+      note('   No installed harness detected on this machine.');
+      note('   Type a target id (or "all") to continue; --list-targets shows every id.');
+    }
     say('');
-    note('   Enter = the "installed" ones   1,3-5 = indexes   all = every tool');
-    const installed = TARGETS.filter((t) => {
-      try { return existsSync(t.defaultPath({ env: process.env })); } catch { return false; }
-    });
-    const fallback = installed.length ? installed.map((t) => t.id) : ['env'];
-    const answer = await ask(cyan(question || '   › Which tool should I import into?'), fallback.join(' '));
+    note('   Only locally installed harnesses are listed.   Enter = all listed   id / all = any target');
+    const fallback = found.length ? found.map((t) => t.id).join(' ') : '';
+    const answer = await ask(cyan(question || '   › Which tool should I import into?'), fallback);
 
-    return parseTargetSelection(answer);
+    return parseTargetSelection(answer, found);
   } finally {
     prompt.close();
   }

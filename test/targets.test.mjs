@@ -196,6 +196,15 @@ describe('interactive target selection', () => {
     assert.deepEqual(parseTargetSelection('2 2 nope').map((t) => t.id), ['opencode']);
     assert.deepEqual(parseTargetSelection('').map((t) => t.id), []);
   });
+
+  it('maps displayed numbers to the supplied installed-only list', () => {
+    const installed = TARGETS.filter((t) => t.id === 'zcode' || t.id === 'opencode');
+    assert.deepEqual(parseTargetSelection('1', installed).map((t) => t.id), ['zcode']);
+    assert.deepEqual(parseTargetSelection('2 1', installed).map((t) => t.id), ['opencode', 'zcode']);
+    // ids and "all" still reach targets that are not in the menu
+    assert.deepEqual(parseTargetSelection('claude-code', installed).map((t) => t.id), ['claude-code']);
+    assert.equal(parseTargetSelection('all', installed).length, TARGETS.length);
+  });
 });
 
 describe('applyWrites', () => {

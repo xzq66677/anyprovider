@@ -1,10 +1,15 @@
+import { existsSync } from 'node:fs';
 import zcode from './zcode.mjs';
 import opencode from './opencode.mjs';
 import claudeCode from './claude-code.mjs';
+import deepseekHarness from './deepseek-harness.mjs';
 import cline from './cline.mjs';
 import continueTarget from './continue.mjs';
 import litellm from './litellm.mjs';
 import aider from './aider.mjs';
+import zed from './zed.mjs';
+import vscodeCopilot from './vscode-copilot.mjs';
+import windsurf from './windsurf.mjs';
 import env from './env.mjs';
 
 /** Order matters only for the wizard menu and for `--target all`. */
@@ -12,10 +17,14 @@ export const TARGETS = [
   zcode,
   opencode,
   claudeCode,
+  deepseekHarness,
   cline,
   continueTarget,
   litellm,
   aider,
+  zed,
+  vscodeCopilot,
+  windsurf,
   env,
 ];
 
@@ -29,8 +38,25 @@ export function getTarget(id) {
   return found;
 }
 
+/**
+ * Every harness whose config file already exists on disk — the "one click,
+ * everything I actually use" answer for `--target installed`.
+ */
+export function installedTargets(env = process.env) {
+  return TARGETS.filter((t) => {
+    try { return existsSync(t.defaultPath({ env })); } catch { return false; }
+  });
+}
+
 export function resolveTargets(list) {
   if (!list || list === 'all') return TARGETS;
+  if (list === 'installed') {
+    const found = installedTargets();
+    if (!found.length) {
+      throw new Error('"installed" matched no harness — no config file was found on disk; list explicit ids instead');
+    }
+    return found;
+  }
   return String(list)
     .split(/[,\s]+/)
     .filter(Boolean)

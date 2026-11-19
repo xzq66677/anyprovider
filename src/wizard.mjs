@@ -50,8 +50,43 @@ function parseSelection(answer, count) {
 async function main() {
   banner(`anyprovider ${VERSION}`, '从一个 API Key 开始，把供应商接进任何 harness');
 
-  /* 1. base URL */
-  step(1, 'API 地址是？');
+  /* 1. targets first — which harnesses is this key for? */
+  step(1, '你目前需要向哪个里面导入？（可多选，稍后一键写入）');
+  say('');
+  table(
+    ['#', 'id', '工具', '状态'],
+    TARGETS.map((t, i) => {
+      let state = dim('—');
+      try {
+        state = existsSync(t.defaultPath({ env: process.env })) ? green('已安装') : dim('未找到');
+      } catch { /* keep defaults */ }
+      return [String(i + 1), t.id, t.label, state];
+    }),
+  );
+  const installed = TARGETS.filter((t) => {
+    try { return existsSync(t.defaultPath({ env: process.env })); } catch { return false; }
+  });
+  const fallback = installed.length ? installed.map((t) => t.id) : ['env'];
+  say('');
+  note('   序号 / id，空格或逗号分隔可多选；回车 = 上面「已安装」的那些；A = 全部 12 个');
+
+  let picked = [];
+  for (;;) {
+    const answer = await ask(cyan('   › 目标：'), fallback.join(' '));
+    const text = String(answer).trim();
+    if (/^a(ll)?$/i.test(text) || text === '*') { picked = [...TARGETS]; break; }
+    picked = [];
+    for (const part of text.split(/[\s,，]+/).filter(Boolean)) {
+      const t = /^\d+$/.test(part) ? TARGETS[Number(part) - 1] : TARGETS.find((x) => x.id === part);
+      if (t && !picked.includes(t)) picked.push(t);
+    }
+    if (picked.length) break;
+    warn('   没选到任何目标，重输一次（例：1 3 或 zcode,opencode）');
+  }
+  note(`   已选 ${picked.length} 个：${picked.map((t) => t.id).join(', ')}`);
+
+  /* 2. base URL */
+  step(2, 'API 地址是？');
   note('   例：https://api.example.com/v1    （带不带 /v1 都行，我会自己试）');
   let baseUrl;
   for (;;) {
@@ -64,16 +99,16 @@ async function main() {
     }
   }
 
-  /* 2. key */
-  step(2, 'API Key 是？');
+  /* 3. key */
+  step(3, 'API Key 是？');
   note('   直接粘贴，回车确认（输入不回显）。');
   const apiKey = await askHidden(cyan('   › Key ：'));
   if (!apiKey) { warn('   没填 Key，退出。'); return 1; }
   note(`   已收到 ${mask(apiKey)}`);
 
-  /* 3. name */
+  /* 4. name */
   const host = (() => { try { return new URL(baseUrl).host; } catch { return 'api'; } })();
-  step(3, '给这个供应商起个名字？');
+  step(4, '给这个供应商起个名字？');
   let providerName = await ask(cyan('   › 显示名：'), host);
   if (looksLikeKey(providerName, apiKey)) {
     warn(`   这串看着像 API Key，不适合当名字，改用域名：${host}`);
@@ -81,8 +116,8 @@ async function main() {
   }
   const providerId = providerIdFromHost(baseUrl);
 
-  /* 4. probe */
-  step(4, '正在探测这个网关 …');
+  /* 5. probe */
+  step(5, '正在探测这个网关 …');
   const discovery = await discover({
     baseUrl,
     apiKey,
@@ -118,8 +153,8 @@ async function main() {
 
   note(`   格式 ${discovery.format}   推理 ${discovery.providerReasoning || '不支持'}`);
 
-  /* 5. selection */
-  step(5, '要导入哪些模型？');
+  /* 6. selection */
+  step(6, '要导入哪些模型？');
   say('');
   const visionLabel = (v) => v === 'yes' ? '支持' : v === 'no' ? '不支持' : v === 'unknown' ? '未知' : '-';
   table(
@@ -152,34 +187,8 @@ async function main() {
     break;
   }
 
-  /* 6. targets */
-  step(6, '写进哪些工具？');
-  say('');
-  table(
-    ['#', 'id', '工具', '配置文件', '状态'],
-    TARGETS.map((t, i) => {
-      let path = '—';
-      let state = dim('—');
-      try {
-        path = t.defaultPath({ env: process.env });
-        state = existsSync(path) ? green('已安装') : dim('未找到');
-      } catch { /* keep defaults */ }
-      return [String(i + 1), t.id, t.label, path, state];
-    }),
-  );
-  const installed = TARGETS.filter((t) => {
-    try { return existsSync(t.defaultPath({ env: process.env })); } catch { return false; }
-  });
-  const fallback = installed.length ? installed.map((t) => t.id) : ['env'];
-  say('');
-  note('   空格或逗号分隔序号 / id，回车 = 上面状态为「已安装」的那些');
-
-  const answer = await ask(cyan('   › 目标：'), fallback.join(' '));
-  const picked = parseTargetSelection(answer);
-  if (!picked.length) { warn('   没选任何目标，退出。'); return 1; }
-
-  /* 7. preview + apply */
-  step(7, '预览');
+  /* 7. one-click apply to every harness picked in step 1 */
+  step(7, `一键写入 ${picked.length} 个工具`);
   const plans = [];
   for (const target of picked) {
     if (!supportsProtocol(target, discovery.protocol)) {
@@ -202,17 +211,20 @@ async function main() {
   }
 
   say('');
-  if (!(await confirm(cyan('   › 写入吗？'), true))) { note('   已取消，什么都没改。'); return 0; }
+  note(`   上面 ${plans.length} 个工具会一次写入（同一个地址、同一个 Key）`);
+  if (!(await confirm(cyan('   › 一键写入吗？'), true))) { note('   已取消，什么都没改。'); return 0; }
 
+  const done = [];
   for (const { target, plan } of plans) {
     const { results, notes } = executePlan(plan, { dryRun: false });
     say(`\n   ${bold(target.label)}`);
     printResults(results);
     printNotes(notes);
+    done.push(target.id);
   }
 
   say('');
-  say(green(bold('   ✓ 完成')));
+  say(green(bold(`   ✓ 一键写入完成：${done.join(', ')}`)));
   say(dim('   改完配置要重启对应程序才会生效；ZCode 需要从托盘右键 Quit 再打开。'));
   return 0;
 }

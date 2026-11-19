@@ -17,7 +17,7 @@ Onboarding a new model provider is four unknowns stacked on top of each other:
 - **Which model ids exist?** Often `/v1/models` is missing, stale, or hand-maintained.
 - **How is reasoning passed?** `reasoning_effort`, `thinking.type`, `reasoning.effort`, `enable_thinking`, `chat_template_kwargs` — every gateway picked a different one, and a wrong guess is a hard 400.
 - **How large is the context window and the output ceiling?** Guessing wrong is either a truncated answer or a request the server rejects outright.
-- **What does my harness want?** ZCode, opencode, Claude Code, Continue, Cline, LiteLLM and aider all store provider config in different files, with different keys and different ideas about what a "model" is.
+- **What does my harness want?** ZCode, opencode, Claude Code, DeepSeek Harness, Continue, Cline, LiteLLM, aider, Zed, VS Code Copilot and Windsurf all store provider config in different files, with different keys and different ideas about what a "model" is.
 
 anyprovider answers all four by talking to the gateway, then emits the file each harness expects.
 
@@ -82,7 +82,8 @@ Required
   --key-file <path>     file containing the API key (preferred)
   --key <key>           API key inline (visible in shell history)
                         or set ANYPROVIDER_API_KEY / OPENAI_API_KEY
-  --target <ids>        comma separated, or "all" (omit to be asked interactively)
+  --target <ids>        comma separated; "all" = every adapter, "installed" = found on disk
+                        omit to be asked interactively
 
 Discovery
   --model <ids>         comma separated model ids (when /models is missing)
@@ -102,7 +103,7 @@ Output
   --interactive         ask for the import target even without a TTY
   --list-targets        show supported harnesses
 
-Targets  zcode  opencode  claude-code  cline  continue  litellm  aider  env
+Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litellm  aider  zed  vscode-copilot  windsurf  env
 ```
 
 | Flag | Meaning |
@@ -139,6 +140,12 @@ Probe only, see what the gateway claims, write nothing:
 node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt --target env
 ```
 
+One key into every harness found on disk (dry run first, add `--write` to apply):
+
+```bash
+node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt --target installed
+```
+
 A gateway with no `/models` endpoint, where you know the ids:
 
 ```bash
@@ -170,7 +177,7 @@ node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt \
 
 ## Wizard
 
-The wizard is the same engine without flags — it asks for the base URL, the key (masked), a name, then shows the models and lets you pick targets.
+The wizard is the same engine without flags — it first asks which harnesses the key is for, then the base URL, the key (masked), a name, then shows the models and applies everything in one confirmation.
 
 ```bash
 node src/wizard.mjs
@@ -180,7 +187,7 @@ anyprovider-wizard
 
 The wizard has no flags — just run it and answer. Its prompts are currently in Chinese.
 
-Flow: base URL → key → display name → probe → model table with a selection prompt (`enter` = all, `1,3-5` = indexes, `M id1,id2` = manual, `Q` = quit) → target menu (defaults to the targets whose config files already exist on disk) → preview of every file to be written → one confirmation → apply.
+Flow: **target menu first** (which harnesses is this key for? multi-select by index or id, `enter` = the ones whose config files already exist on disk, `A` = all) → base URL → key → display name → probe → model table with a selection prompt (`enter` = all, `1,3-5` = indexes, `M id1,id2` = manual, `Q` = quit) → preview of every file to be written → **one confirmation applies the same key and base URL to every harness you picked**.
 
 On a terminal it waits for a final keypress so a double-clicked window does not disappear. Piped input works too: earlier-arriving lines are queued rather than dropped.
 
@@ -262,10 +269,14 @@ Use `--vision-sample 0` to skip the extra requests entirely.
 | `zcode` | ZCode | `<dataBaseDir>/.zcode/v2/provider_config.json` | yes — merges, validates first | chat, responses, anthropic |
 | `opencode` | opencode | `~/.config/opencode/opencode.json` (or `.jsonc`) | yes — merges, both schema generations | chat, responses, anthropic |
 | `claude-code` | Claude Code | `~/.claude/settings.json` | yes — merges the `env` block | anthropic only |
+| `deepseek-harness` | DeepSeek Harness | `~/.dsh/profiles/desktop/cordis.patch.yml` + key into `~/.dsh/.credentials.yaml` | yes — indentation-aware YAML surgery | chat, responses, anthropic |
 | `cline` | Cline / Roo Code | VS Code user `settings.json` | yes — merges flat `cline.*` keys | chat |
 | `continue` | Continue | `~/.continue/config.yaml` | create or suggest | chat |
 | `litellm` | LiteLLM | `./litellm.config.yaml` | create or suggest | chat, responses, anthropic |
 | `aider` | aider | `~/.aider.conf.yml` | create or suggest | chat |
+| `zed` | Zed | `~/.config/zed/settings.json` (Windows: `%APPDATA%\Zed\settings.json`) | yes — merges `language_models` | chat, responses, anthropic |
+| `vscode-copilot` | VS Code Copilot Chat | `chatLanguageModels.json` custom-endpoint list | yes — merges the array | chat, responses, anthropic |
+| `windsurf` | Windsurf (guided) | `~/.anyprovider/windsurf.json` bundle only | yes — never touches Windsurf itself | chat, responses, anthropic |
 | `env` | anything else | `~/.anyprovider/providers.json` | yes — merges registry | chat, responses, anthropic |
 
 "Protocols" is what the emitted config assumes. When the probe detects a protocol a target cannot speak, that target is **skipped with a warning** instead of writing a config it could never use — so `--target all` against an Anthropic-native gateway writes ZCode, opencode, LiteLLM and the generic bundle, and skips the chat-only ones.

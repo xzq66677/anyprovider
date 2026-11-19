@@ -48,7 +48,7 @@ function usage() {
   say('    --key-file <path>     file containing the API key (preferred)');
   say('    --key <key>           API key inline (visible in shell history)');
   say('                          or set ANYPROVIDER_API_KEY / OPENAI_API_KEY');
-  say('    --target <ids>        comma separated, or "all"');
+  say('    --target <ids>        comma separated; "all" = every adapter, "installed" = found on disk');
   say('                          omit to be asked which tool to import into');
   say('');
   say(`  ${cyan('Discovery')}`);
@@ -133,7 +133,6 @@ async function main() {
   if (args.version || args.v) { say(VERSION); return 0; }
 
   if (!args.base) { fail('\n  --base is required\n'); usage(); return 2; }
-
   const apiKey = await readKey(args);
   if (!apiKey) {
     fail('\n  No API key: use --key-file, --key, or ANYPROVIDER_API_KEY');

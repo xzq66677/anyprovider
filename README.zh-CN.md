@@ -17,7 +17,7 @@
 - **有哪些模型 id？** `/v1/models` 经常不存在、过期，或者是手写的。
 - **reasoning 参数怎么传？** `reasoning_effort`、`thinking.type`、`reasoning.effort`、`enable_thinking`、`chat_template_kwargs` —— 每家网关各发明一个，猜错就是硬 400。
 - **上下文窗口和输出上限多大？** 猜大了请求被拒，猜小了回答被截断。
-- **我的 harness 要什么格式？** ZCode、opencode、Claude Code、Continue、Cline、LiteLLM、aider 各自把 provider 配置放在不同的文件里，键名不同，对"模型"的抽象也不同。
+- **我的 harness 要什么格式？** ZCode、opencode、Claude Code、DeepSeek Harness、Continue、Cline、LiteLLM、aider、Zed、VS Code Copilot、Windsurf 各自把 provider 配置放在不同的文件里，键名不同，对"模型"的抽象也不同。
 
 anyprovider 用一次探测回答前三个问题，再用 target adapter 回答第四个。
 
@@ -82,7 +82,8 @@ Required
   --key-file <path>     file containing the API key (preferred)
   --key <key>           API key inline (visible in shell history)
                         or set ANYPROVIDER_API_KEY / OPENAI_API_KEY
-  --target <ids>        comma separated, or "all" (omit to be asked interactively)
+  --target <ids>        逗号分隔；"all" = 全部 adapter，"installed" = 磁盘上检测到的
+                        省略则交互式询问导入目标
 
 Discovery
   --model <ids>         comma separated model ids (when /models is missing)
@@ -102,7 +103,7 @@ Output
   --interactive         ask for the import target even without a TTY
   --list-targets        show supported harnesses
 
-Targets  zcode  opencode  claude-code  cline  continue  litellm  aider  env
+Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litellm  aider  zed  vscode-copilot  windsurf  env
 ```
 
 | 参数 | 含义 |
@@ -139,6 +140,12 @@ Targets  zcode  opencode  claude-code  cline  continue  litellm  aider  env
 node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt --target env
 ```
 
+一个 Key 一键写进磁盘上检测到的所有 harness（先 dry-run 预览，确认后加 `--write`）：
+
+```bash
+node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt --target installed
+```
+
 网关没有 `/models`，但你知道模型 id：
 
 ```bash
@@ -170,7 +177,7 @@ node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt \
 
 ## 向导
 
-向导是同一个引擎，只是把参数换成提问 —— 依次询问 base URL、Key（不回显）、显示名，然后列出模型、让你挑 target。
+向导是同一个引擎，只是把参数换成提问 —— 先问这个 Key 要给哪些 harness 用（可多选），再依次询问 base URL、Key（不回显）、显示名，然后列出模型，最后一次确认一键写入。
 
 ```bash
 node src/wizard.mjs
@@ -180,7 +187,7 @@ anyprovider-wizard
 
 向导不接受任何参数，跑起来一条条回答就行。提示语目前是中文。
 
-流程：base URL → Key → 显示名 → 探测 → 模型表格与选择提示（回车 = 全部，`1,3-5` = 序号，`M id1,id2` = 手工指定，`Q` = 退出）→ target 菜单（默认选中磁盘上已存在配置文件的那几个）→ 预览每个将要写入的文件 → 一次确认 → 写入。
+流程：**先选 target**（这个 Key 要给哪些 harness 用？按序号或 id 多选，回车 = 磁盘上已存在配置文件的那几个，`A` = 全部）→ base URL → Key → 显示名 → 探测 → 模型表格与选择提示（回车 = 全部，`1,3-5` = 序号，`M id1,id2` = 手工指定，`Q` = 退出）→ 预览每个将要写入的文件 → **一次确认，把同一个地址和 Key 一键写进你勾选的所有 harness**。
 
 在真实终端里它会等一次回车再关闭窗口，所以双击启动也不会一闪而过。管道输入同样可用：先到的行会进队列，不会被丢掉。
 
@@ -262,10 +269,14 @@ node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt \
 | `zcode` | ZCode | `<dataBaseDir>/.zcode/v2/provider_config.json` | 是 —— 合并，且先自校验 | chat, responses, anthropic |
 | `opencode` | opencode | `~/.config/opencode/opencode.json`（或 `.jsonc`） | 是 —— 合并，兼容两代 schema | chat, responses, anthropic |
 | `claude-code` | Claude Code | `~/.claude/settings.json` | 是 —— 合并 `env` 块 | 仅 anthropic |
+| `deepseek-harness` | DeepSeek Harness | `~/.dsh/profiles/desktop/cordis.patch.yml`，密钥写入 `~/.dsh/.credentials.yaml` | 是 —— 按缩进做 YAML 行手术 | chat, responses, anthropic |
 | `cline` | Cline / Roo Code | VS Code 用户 `settings.json` | 是 —— 合并扁平的 `cline.*` 键 | chat |
 | `continue` | Continue | `~/.continue/config.yaml` | 仅在文件不存在时创建，否则出建议文件 | chat |
 | `litellm` | LiteLLM | `./litellm.config.yaml` | 仅在文件不存在时创建，否则出建议文件 | chat, responses, anthropic |
 | `aider` | aider | `~/.aider.conf.yml` | 仅在文件不存在时创建，否则出建议文件 | chat |
+| `zed` | Zed | `~/.config/zed/settings.json`（Windows：`%APPDATA%\Zed\settings.json`） | 是 —— 合并 `language_models` | chat, responses, anthropic |
+| `vscode-copilot` | VS Code Copilot Chat | `chatLanguageModels.json` 自定义端点列表 | 是 —— 合并数组 | chat, responses, anthropic |
+| `windsurf` | Windsurf（引导模式） | 只写 `~/.anyprovider/windsurf.json` 捆绑包 | 是 —— 绝不碰 Windsurf 自身文件 | chat, responses, anthropic |
 | `env` | 其他任意工具 | `~/.anyprovider/providers.json` | 是 —— 合并 registry | chat, responses, anthropic |
 
 「协议」一列表示生成配置所假定的协议。当探测出的协议是某个 target 说不通的，该 target 会被**跳过并给出警告**，而不是写出一个永远用不了的配置 —— 所以在 Anthropic 原生网关上跑 `--target all`，会写 ZCode、opencode、LiteLLM 和通用包，跳过只认 chat 的那几个。

@@ -67,12 +67,17 @@ export function resolveTargets(list) {
  * Parse an interactive selection answer into target objects. Accepts 1-based
  * indexes, ids, and "all"/"a"; unknown tokens are ignored and order preserved.
  * Shared by the CLI prompt and the wizard so both understand the same syntax.
+ *
+ * `candidates` is the list the on-screen numbers refer to (defaults to every
+ * target). When the menu only shows locally installed harnesses, pass that
+ * same list here so "#1" means the first *listed* harness. Ids and "all" still
+ * resolve against every target, so the user can always name an uninstalled one.
  */
-export function parseTargetSelection(answer) {
+export function parseTargetSelection(answer, candidates = TARGETS) {
   const picked = [];
   for (const part of String(answer || '').split(/[\s,，]+/).filter(Boolean)) {
     if (/^a(ll)?$/i.test(part)) { picked.push(...TARGETS); continue; }
-    const t = /^\d+$/.test(part) ? TARGETS[Number(part) - 1] : TARGETS.find((x) => x.id === part);
+    const t = /^\d+$/.test(part) ? candidates[Number(part) - 1] : TARGETS.find((x) => x.id === part);
     if (t && !picked.includes(t)) picked.push(t);
   }
   return picked;

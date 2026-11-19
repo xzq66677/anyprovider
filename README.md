@@ -187,34 +187,35 @@ anyprovider-wizard
 
 The wizard has no flags — just run it and answer. Its prompts are currently in Chinese.
 
-Flow: **target menu first** (which harnesses is this key for? multi-select by index or id, `enter` = the ones whose config files already exist on disk, `A` = all) → base URL → key → display name → probe → model table with a selection prompt (`enter` = all, `1,3-5` = indexes, `M id1,id2` = manual, `Q` = quit) → preview of every file to be written → **one confirmation applies the same key and base URL to every harness you picked**.
+Flow: **target menu first** (only harnesses whose config files exist on this machine are listed; multi-select by the displayed number or id, `enter` = all listed, `A` = all) → base URL → key → display name → probe → model table with a selection prompt (`enter` = all, `1,3-5` = indexes, `M id1,id2` = manual, `Q` = quit) → preview of every file to be written → **one confirmation applies the same key and base URL to every harness you picked**.
+
+**The display name is yours.** The prompt starts empty — type whatever you want. Pressing `enter` accepts the gateway host as a suggestion. If what you type looks like an API key, the wizard warns but keeps your text and asks whether to keep it or retype; it never silently substitutes a different name.
 
 On a terminal it waits for a final keypress so a double-clicked window does not disappear. Piped input works too: earlier-arriving lines are queued rather than dropped.
 
 ## Interactive target selection
 
-You do not have to know the target ids up front. Leave `--target` off and, on a terminal, the CLI shows the target menu and asks where to import:
+You do not have to know the target ids up front. Leave `--target` off and, on a terminal, the CLI detects which harnesses are actually installed and shows only those:
 
 ```bash
 node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt
 ```
 
 ```
-   #  id           tool         config                                   status
-   1  zcode        ZCode        ~/.zcode/v2/provider_config.json         installed
-   2  opencode     opencode     ~/.config/opencode/opencode.json         not found
-   ...
-   8  env          Generic      ~/.anyprovider/providers.json            installed
+   #  id           tool         config
+   1  zcode        ZCode        ~/.zcode/v2/provider_config.json
+   2  env          Generic      ~/.anyprovider/providers.json
 
-   Enter = the "installed" ones   1,3-5 = indexes   all = every tool
-   › 你目前需要向哪个里面导入？ [zcode opencode env]
+   Only locally installed harnesses are listed.   Enter = all listed   id / all = any target
+   › 你目前需要向哪个里面导入？ [zcode env]
 ```
 
-- **Enter** picks the targets whose config files already exist on disk (falls back to `env`).
-- **Indexes / ids** — `1,3-5`, `opencode env`, `2 2 nope` (unknown tokens ignored, duplicates removed).
-- **`all` / `a`** — every adapter.
+- **Enter** picks every harness in the list. If nothing was detected, the prompt asks again — type an id or `all` to continue.
+- **Indexes** refer only to the rows shown (`1` = the first *listed* harness, not the first of all targets).
+- **Ids / `all`** still resolve against every adapter, so an uninstalled harness can be named explicitly.
+- **`--list-targets`** prints every id if you want to see what exists beyond the local menu.
 
-The wizard uses the same "写进哪些工具？" step and the same answer syntax. In non-interactive shells (CI, pipes) with no `--target`, the CLI still exits `2` rather than hanging — pass `--interactive` to force the prompt, or `--target` to stay fully scripted. `--json` always requires an explicit `--target` so machine output stays deterministic.
+The wizard uses the same "你目前需要向哪个里面导入？" step and the same answer syntax. In non-interactive shells (CI, pipes) with no `--target`, the CLI still exits `2` rather than hanging — pass `--interactive` to force the prompt, or `--target` to stay fully scripted. `--json` always requires an explicit `--target` so machine output stays deterministic.
 
 ## Vision capability probing
 

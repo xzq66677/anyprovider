@@ -187,34 +187,35 @@ anyprovider-wizard
 
 向导不接受任何参数，跑起来一条条回答就行。提示语目前是中文。
 
-流程：**先选 target**（这个 Key 要给哪些 harness 用？按序号或 id 多选，回车 = 磁盘上已存在配置文件的那几个，`A` = 全部）→ base URL → Key → 显示名 → 探测 → 模型表格与选择提示（回车 = 全部，`1,3-5` = 序号，`M id1,id2` = 手工指定，`Q` = 退出）→ 预览每个将要写入的文件 → **一次确认，把同一个地址和 Key 一键写进你勾选的所有 harness**。
+流程：**先选 target**（只列本机已检测到配置文件的 harness；按显示的序号或 id 多选，回车 = 列出的全部，`A` = 全部）→ base URL → Key → 显示名 → 探测 → 模型表格与选择提示（回车 = 全部，`1,3-5` = 序号，`M id1,id2` = 手工指定，`Q` = 退出）→ 预览每个将要写入的文件 → **一次确认，把同一个地址和 Key 一键写进你勾选的所有 harness**。
+
+**显示名由你决定。** 输入框默认是空的，想叫什么就输什么；直接回车才用域名作为建议值。如果你输的内容看着像 API Key，向导会提醒但**不会替你改**，而是让你选择保留还是重输。
 
 在真实终端里它会等一次回车再关闭窗口，所以双击启动也不会一闪而过。管道输入同样可用：先到的行会进队列，不会被丢掉。
 
 ## 对话式选择导入目标
 
-不必事先记住 target 的 id。在终端里省略 `--target`，CLI 会列出目标菜单，问你要导入到哪里：
+不必事先记住 target 的 id。在终端里省略 `--target`，CLI 会探查本机环境，**只列出确实已安装的 harness**：
 
 ```bash
 node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt
 ```
 
 ```
-   #  id           tool         config                                   status
-   1  zcode        ZCode        ~/.zcode/v2/provider_config.json         installed
-   2  opencode     opencode     ~/.config/opencode/opencode.json         not found
-   ...
-   8  env          Generic      ~/.anyprovider/providers.json            installed
+   #  id           tool         config
+   1  zcode        ZCode        ~/.zcode/v2/provider_config.json
+   2  env          Generic      ~/.anyprovider/providers.json
 
-   Enter = the "installed" ones   1,3-5 = indexes   all = every tool
-   › 你目前需要向哪个里面导入？ [zcode opencode env]
+   Only locally installed harnesses are listed.   Enter = all listed   id / all = any target
+   › 你目前需要向哪个里面导入？ [zcode env]
 ```
 
-- **回车** 选中磁盘上已有配置文件的那些 target（没有则回退到 `env`）。
-- **序号 / id** —— `1,3-5`、`opencode env`、`2 2 nope`（无法识别的 token 忽略，重复的去掉）。
-- **`all` / `a`** —— 所有 adapter。
+- **回车** 选中列出的全部 target。本机一个都没检测到时会重新询问 —— 输入 id 或 `all` 继续。
+- **序号** 只对应上面列出的行（`1` = 列表里的第一个，不再是全部 target 里的第一个）。
+- **id / `all`** 仍然匹配所有 adapter，所以可以显式指定未安装的 harness。
+- **`--list-targets`** 可查看全部 id，了解本机菜单之外还有哪些。
 
-向导的"写进哪些工具？"用的是同一套答案语法。在非交互 shell（CI、管道）里若没给 `--target`，CLI 仍然直接以 `2` 退出而不会挂住 —— 想强制弹选择就加 `--interactive`，想全程脚本化就显式给 `--target`。`--json` 始终要求显式 `--target`，保证机器输出确定。
+向导的「你目前需要向哪个里面导入？」用的是同一套答案语法。在非交互 shell（CI、管道）里若没给 `--target`，CLI 仍然直接以 `2` 退出而不会挂住 —— 想强制弹选择就加 `--interactive`，想全程脚本化就显式给 `--target`。`--json` 始终要求显式 `--target`，保证机器输出确定。
 
 ## 视觉能力探测
 

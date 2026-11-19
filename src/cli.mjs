@@ -15,7 +15,8 @@ import { providerIdFromHost } from './core/endpoints.mjs';
 import { executePlan } from './core/run.mjs';
 import { createPrompt } from './core/prompt.mjs';
 import { addKey, readVault, resolveKey, vaultPath } from './core/keys.mjs';
-import { printDiscovery, printModels, printNotes, printResults, printSnippet } from './core/report.mjs';
+import { printDiscovery, printKeyInventory, printModels, printNotes, printResults, printSnippet } from './core/report.mjs';
+import { buildInventory } from './core/keyscan.mjs';
 import { TARGETS, TARGET_IDS, installedTargets, resolveTargets, parseTargetSelection, supportsProtocol } from './targets/index.mjs';
 import { bold, cyan, dim, fail, green, mask, note, say, step, table, warn } from './core/format.mjs';
 
@@ -75,6 +76,13 @@ function usage() {
   say('    --key-from <ref>      use a saved key by alias, id or 1-based index');
   say('                          also supplies --base when it is omitted');
   say('    --key-save            save this key under --name (or the host) for reuse');
+  say('');
+  say(`  ${cyan('Key inventory')}`);
+  say('    --keys-status         list keys already stored in local harnesses + vault');
+  say('    --check               with --keys-status: probe validity via free GET /models');
+  say('    --force               ignore the 24h cache and re-check');
+  say('    --check-ttl <hours>   cache lifetime in hours (default 24)');
+  say('                          combines with --json for machine-readable output');
   say('');
   say(`  ${cyan('Targets')}  ${TARGET_IDS.join('  ')}`);
   say('');
@@ -153,6 +161,45 @@ async function main() {
     say('');
     return 0;
   }
+  if (args.keysStatus) {
+    const check = !!args.check;
+    const force = !!args.force;
+    const ttl = args.checkTtl !== undefined ? Number(args.checkTtl) : undefined;
+    if (ttl !== undefined && (!Number.isFinite(ttl) || ttl < 0)) {
+      fail('\n  --check-ttl must be a number of hours (>= 0)');
+      return 2;
+    }
+    let result;
+    try {
+      result = await buildInventory({
+        check,
+        force,
+        ...(ttl !== undefined ? { ttlHours: ttl } : {}),
+        ...(check && !args.json ? { onProgress: (kind, e) => {
+          if (kind === 'checked') warn(`  检测 ${e.platform}: ${e.health.status}`);
+        } } : {}),
+      });
+    } catch (err) { fail(`\n  ${err.message}`); return 2; }
+    if (result.warnings.length) for (const w of result.warnings) warn(`  ${w}`);
+    if (args.json) {
+      process.stdout.write(`${JSON.stringify({
+        entries: result.entries.map((e) => ({
+          platform: e.platform,
+          names: e.names,
+          apiKeyMasked: e.apiKey ? `${e.apiKey.slice(0, 6)}…${e.apiKey.slice(-4)}` : null,
+          keyEnv: e.keyEnv,
+          sources: e.sources,
+          health: e.health,
+        })),
+      }, null, 2)}\n`);
+      return 0;
+    }
+    say('');
+    step(1, check ? '已存 Key 一览（含有效性检测）' : '已存 Key 一览');
+    printKeyInventory(result.entries, { checked: check });
+    return 0;
+  }
+
   if (args.version || args.v) { say(VERSION); return 0; }
 
   let savedKey = null;

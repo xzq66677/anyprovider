@@ -12,7 +12,8 @@ import { createPrompt } from './core/prompt.mjs';
 import { addKey, readVault, removeKey, renameKey, resolveKey, vaultPath } from './core/keys.mjs';
 import { executePlan } from './core/run.mjs';
 import { TARGETS, installedTargets, parseTargetSelection, supportsProtocol } from './targets/index.mjs';
-import { printNotes, printResults, printSnippet } from './core/report.mjs';
+import { printKeyInventory, printNotes, printResults, printSnippet } from './core/report.mjs';
+import { buildInventory } from './core/keyscan.mjs';
 import { banner, bold, cyan, dim, green, mask, note, say, step, table, warn } from './core/format.mjs';
 
 const prompt = createPrompt();
@@ -83,8 +84,62 @@ async function manageVault(vault) {
   }
 }
 
+/** Show every stored key across harnesses, optionally probing validity. */
+async function keyInventoryMenu() {
+  for (;;) {
+    say('');
+    note('   1  查看已存 Key（只显示缓存，不发请求）');
+    note('   2  检测有效性（GET /models，只验鉴权、不花 token）');
+    note('   3  强制重新检测（忽略 24h 缓存）');
+    const answer = String(await ask(cyan('   › 查看方式：'), '1')).trim();
+    const check = answer === '2' || answer === '3';
+    const force = answer === '3';
+    if (!['1', '2', '3'].includes(answer)) { warn('   没看懂，例：1 / 2 / 3'); continue; }
+    say('');
+    step(1, check ? '已存 Key 一览（含有效性检测）' : '已存 Key 一览');
+    let result;
+    try {
+      result = await buildInventory({
+        check,
+        force,
+        onProgress: (kind, e) => {
+          if (kind === 'checked') note(`   · 已检测 ${e.platform} → ${e.health.status}`);
+        },
+      });
+    } catch (err) { warn(`   ${err.message}`); return; }
+    for (const w of result.warnings) warn(`   ${w}`);
+    printKeyInventory(result.entries, { checked: check });
+    return;
+  }
+}
+
 async function main() {
   banner(`anyprovider ${VERSION}`, '从一个 API Key 开始，把供应商接进任何 harness');
+
+  // Direct entry (also works non-interactively): anyprovider-wizard --keys-status [--check]
+  if (process.argv.includes('--keys-status')) {
+    const check = process.argv.includes('--check');
+    const force = process.argv.includes('--force');
+    step(1, check ? '已存 Key 一览（含有效性检测）' : '已存 Key 一览');
+    const result = await buildInventory({ check, force });
+    for (const w of result.warnings) warn(`   ${w}`);
+    printKeyInventory(result.entries, { checked: check });
+    return 0;
+  }
+
+  /* Main menu: only on a real terminal, so piped/automated input still starts
+     straight into the import flow (its first line is the target selection). */
+  if (prompt.isTTY) {
+    say('');
+    note('   1  导入 Key 到 harness（向导）');
+    note('   2  查看 / 检测已存的 Key（Key 管理）');
+    const mode = String(await ask(cyan('   › 要做哪项？'), '1')).trim();
+    if (mode === '2' || /^(key|keys|status|管理)$/i.test(mode)) {
+      await keyInventoryMenu();
+      return 0;
+    }
+  }
+  stepNo = 0;
 
   /* 1. targets first — only the harnesses actually present on this machine */
   nextStep('你目前需要向哪个里面导入？（同一个 Key 可多选，稍后一键写入）');

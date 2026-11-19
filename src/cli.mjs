@@ -14,9 +14,10 @@ import { DEFAULTS, discover } from './core/probe.mjs';
 import { providerIdFromHost } from './core/endpoints.mjs';
 import { executePlan } from './core/run.mjs';
 import { createPrompt } from './core/prompt.mjs';
+import { addKey, readVault, resolveKey, vaultPath } from './core/keys.mjs';
 import { printDiscovery, printModels, printNotes, printResults, printSnippet } from './core/report.mjs';
 import { TARGETS, TARGET_IDS, installedTargets, resolveTargets, parseTargetSelection, supportsProtocol } from './targets/index.mjs';
-import { bold, cyan, dim, fail, green, note, say, step, table, warn } from './core/format.mjs';
+import { bold, cyan, dim, fail, green, mask, note, say, step, table, warn } from './core/format.mjs';
 
 const VERSION = '0.1.0';
 
@@ -69,17 +70,24 @@ function usage() {
   say('    --interactive         ask for the import target even without a TTY');
   say('    --list-targets        show supported harnesses');
   say('');
+  say(`  ${cyan('Key vault')}  (~/.anyprovider/keys.json)`);
+  say('    --key-list            list saved keys (masked)');
+  say('    --key-from <ref>      use a saved key by alias, id or 1-based index');
+  say('                          also supplies --base when it is omitted');
+  say('    --key-save            save this key under --name (or the host) for reuse');
+  say('');
   say(`  ${cyan('Targets')}  ${TARGET_IDS.join('  ')}`);
   say('');
 }
 
-async function readKey(args) {
+async function readKey(args, saved = null) {
   if (typeof args.keyFile === 'string') {
     const raw = readFileSync(args.keyFile, 'utf8').trim();
     if (!raw) throw new Error(`key file ${args.keyFile} is empty`);
     return raw.split(/\r?\n/)[0].trim();
   }
   if (typeof args.key === 'string') return args.key.trim();
+  if (saved) return saved.apiKey;
   return (process.env.ANYPROVIDER_API_KEY || process.env.OPENAI_API_KEY || '').trim();
 }
 
@@ -129,12 +137,39 @@ async function main() {
     say('');
     return 0;
   }
+  if (args.keyList) {
+    let store;
+    try { store = readVault(vaultPath()); }
+    catch (err) { fail(`\n  ${err.message}`); return 2; }
+    say('');
+    if (!store.keys.length) {
+      note('  Key 库是空的 —— 用 --key-save 保存一个，或用向导的「存进 Key 库」。');
+    } else {
+      table(
+        ['#', 'name', 'base URL', 'key'],
+        store.keys.map((k, i) => [String(i + 1), k.name, k.baseUrl, mask(k.apiKey)]),
+      );
+    }
+    say('');
+    return 0;
+  }
   if (args.version || args.v) { say(VERSION); return 0; }
 
+  let savedKey = null;
+  if (args.keyFrom !== undefined) {
+    if (args.keyFrom === true) {
+      fail('\n  --key-from needs a reference (alias, id or index); use --key-list to see them');
+      return 2;
+    }
+    try { savedKey = resolveKey(String(args.keyFrom), readVault(vaultPath())); }
+    catch (err) { fail(`\n  ${err.message}`); return 2; }
+    if (!args.base) args.base = savedKey.baseUrl;
+  }
+
   if (!args.base) { fail('\n  --base is required\n'); usage(); return 2; }
-  const apiKey = await readKey(args);
+  const apiKey = await readKey(args, savedKey);
   if (!apiKey) {
-    fail('\n  No API key: use --key-file, --key, or ANYPROVIDER_API_KEY');
+    fail('\n  No API key: use --key-file, --key, --key-from, or ANYPROVIDER_API_KEY');
     return 2;
   }
 
@@ -238,6 +273,16 @@ async function main() {
     say(dim('  Restart the applications involved so they reload their config.'));
   } else {
     warn('  Some targets failed — see the messages above. The others were written.');
+  }
+
+  if (args.keySave) {
+    const name = typeof args.name === 'string' && args.name ? args.name : new URL(discovery.baseUrl).host;
+    try {
+      addKey({ name, baseUrl: discovery.baseUrl, apiKey }, vaultPath());
+      say(`  ${green('✓')} Key「${name}」saved to vault — reuse with --key-from "${name}".`);
+    } catch (err) {
+      warn(`  Could not save key: ${err.message}`);
+    }
   }
   say('');
   return exitCode;

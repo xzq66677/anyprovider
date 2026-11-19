@@ -103,6 +103,12 @@ Output
   --interactive         ask for the import target even without a TTY
   --list-targets        show supported harnesses
 
+Key vault (~/.anyprovider/keys.json)
+  --key-list            list saved keys (masked)
+  --key-from <ref>      use a saved key by alias, id or 1-based index
+                        also supplies --base when it is omitted
+  --key-save            save this key under --name (or the host) for reuse
+
 Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litellm  aider  zed  vscode-copilot  windsurf  env
 ```
 
@@ -110,8 +116,11 @@ Targets  zcode  opencode  claude-code  deepseek-harness  cline  continue  litell
 |---|---|
 | `--base` | 必填。缺少协议时自动补 `https://`，去掉尾部斜杠，`/v1` 可有可无。 |
 | `--key-file` | 与 `--key`、环境变量三选一。取文件第一行并 trim。 |
-| `--key` | 直接给 Key。方便，但会出现在 `ps` 和 shell 历史里 —— 优先用 `--key-file`。 |
-| `ANYPROVIDER_API_KEY`、`OPENAI_API_KEY` | 只有在既没给 `--key-file` 也没给 `--key` 时才读。 |
+| `--key` | 直接给 Key。方便，但会出现在 `ps` 和 shell 历史里 —— 优先用 `--key-file` 或 Key 库。 |
+| `--key-list` | 列出已保存的 Key（别名、地址、脱敏后的 Key），不会发起探测。 |
+| `--key-from` | 从 Key 库按别名、id 或序号取 Key；没给 `--base` 时连地址一起带出。显式 `--key-file` / `--key` 仍然优先。 |
+| `--key-save` | 把本次用的 Key 按 `--name`（或域名）存进 Key 库。 |
+| `ANYPROVIDER_API_KEY`、`OPENAI_API_KEY` | 只有在既没给 `--key-file`、`--key` 也没给 `--key-from` 时才读。 |
 | `--target` | 逗号或空格分隔的 id，或 `all`。用 `--list-targets` 查看 id。**省略它，CLI 会交互式地问你导入到哪个工具**（见[对话式选择导入目标](#对话式选择导入目标)）。 |
 | `--model` | 有两种用途：`/models` 为空时提供 id；同时也限定最终写入哪些模型。 |
 | `--protocol` | 限定并重排协议探测顺序，例如已知网关是 Anthropic 原生就用 `--protocol anthropic`。 |
@@ -187,7 +196,7 @@ anyprovider-wizard
 
 向导不接受任何参数，跑起来一条条回答就行。提示语目前是中文。
 
-流程：**先选 target**（只列本机已检测到配置文件的 harness；按显示的序号或 id 多选，回车 = 列出的全部，`A` = 全部）→ base URL → Key → 显示名 → 探测 → 模型表格与选择提示（回车 = 全部，`1,3-5` = 序号，`M id1,id2` = 手工指定，`Q` = 退出）→ 预览每个将要写入的文件 → **一次确认，把同一个地址和 Key 一键写进你勾选的所有 harness**。
+流程：**先选 target**（只列本机已检测到配置文件的 harness；同一个 Key 可同时写进勾选的所有 harness）→ **选 Key 来源**（新 Key / 已保存的 Key / 管理 Key 库）→ base URL → Key → 显示名（仅新 Key）→ 探测 → 模型表格与选择提示（回车 = 全部，`1,3-5` = 序号，`M id1,id2` = 手工指定，`Q` = 退出）→ 预览每个将要写入的文件 → **一次确认，把同一个地址和 Key 一键写进你勾选的所有 harness**。
 
 **显示名由你决定。** 输入框默认是空的，想叫什么就输什么；直接回车才用域名作为建议值。如果你输的内容看着像 API Key，向导会提醒但**不会替你改**，而是让你选择保留还是重输。
 
@@ -216,6 +225,28 @@ node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt
 - **`--list-targets`** 可查看全部 id，了解本机菜单之外还有哪些。
 
 向导的「你目前需要向哪个里面导入？」用的是同一套答案语法。在非交互 shell（CI、管道）里若没给 `--target`，CLI 仍然直接以 `2` 退出而不会挂住 —— 想强制弹选择就加 `--interactive`，想全程脚本化就显式给 `--target`。`--json` 始终要求显式 `--target`，保证机器输出确定。
+
+## 管理自己的 API Key
+
+Key 可以复用。写入成功后向导会问你要不要存进 Key 库（由你决定）；CLI 用 `--key-save` 做同样的事。存下来的 Key 带别名、地址和 Key 本身，放在 `~/.anyprovider/keys.json`（与探测结果的 registry 同目录）。
+
+这个文件里是**明文 Key，注意保管**。写入是原子的，会留带时间戳的备份，并在系统支持时收紧权限。想换目录就设 `ANYPROVIDER_HOME`。文件一旦损坏，工具会报错停下，不会覆盖它以免丢 Key。
+
+向导走到「这个 Key 从哪来？」时：
+
+```
+1  输入一个新 Key          地址 → Key → 显示名；写完后可存库
+2  用已保存的 Key          按序号选；地址和名字一起带出，直接进探测
+3  管理 Key 库             r<序号> 改名，d<序号> 删除（需确认），回车返回
+```
+
+无论哪种方式，选中的 Key 都会写进**第 1 步勾选的所有 harness** —— 一把 Key、多个 harness、一次确认。
+
+```bash
+node src/cli.mjs --key-list
+node src/cli.mjs --key-from "我的中转" --target zcode --write
+node src/cli.mjs --base https://api.example.com/v1 --key sk-... --name "我的中转" --target zcode --key-save
+```
 
 ## 视觉能力探测
 

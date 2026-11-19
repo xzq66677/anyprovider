@@ -23,7 +23,7 @@ anyprovider 用一次探测回答前三个问题，再用 target adapter 回答�
 
 ## 它做什么
 
-一次探测产出一份逐模型的记录 —— id、context window、max output、reasoning 参数 —— 然后由各 target adapter 转成自己的文件格式。
+一次探测产出一份逐模型的记录 —— id、context window、max output、reasoning 参数以及视觉（图像输入）支持情况 —— 然后由各 target adapter 转成自己的文件格式。
 
 它不读厂商文档，也不在 `/models` 缺元数据时假装知道：能力相关的问题一律靠发送若干次极小的真实请求来确认，看网关接受什么、回显什么、以及在你要太多时怎么报错。
 
@@ -82,12 +82,13 @@ Required
   --key-file <path>     file containing the API key (preferred)
   --key <key>           API key inline (visible in shell history)
                         or set ANYPROVIDER_API_KEY / OPENAI_API_KEY
-  --target <ids>        comma separated, or "all"
+  --target <ids>        comma separated, or "all" (omit to be asked interactively)
 
 Discovery
   --model <ids>         comma separated model ids (when /models is missing)
   --protocol <list>     restrict detection to chat,responses,anthropic
   --sample <n>          models to reasoning-probe (default 3, 0 = skip)
+  --vision-sample <n>   models to image-probe (default 3, 0 = skip)
   --deep                probe every model individually (slow, thorough)
   --default-context <n> context window when the gateway reports none (128000)
   --default-maxout <n>  max output when it cannot be probed (32000)
@@ -98,6 +99,7 @@ Output
   --name <text>         display name (default: host)
   --id <text>           provider id (default: derived from host)
   --json                machine-readable discovery output
+  --interactive         ask for the import target even without a TTY
   --list-targets        show supported harnesses
 
 Targets  zcode  opencode  claude-code  cline  continue  litellm  aider  env
@@ -109,11 +111,13 @@ Targets  zcode  opencode  claude-code  cline  continue  litellm  aider  env
 | `--key-file` | 与 `--key`、环境变量三选一。取文件第一行并 trim。 |
 | `--key` | 直接给 Key。方便，但会出现在 `ps` 和 shell 历史里 —— 优先用 `--key-file`。 |
 | `ANYPROVIDER_API_KEY`、`OPENAI_API_KEY` | 只有在既没给 `--key-file` 也没给 `--key` 时才读。 |
-| `--target` | 逗号或空格分隔的 id，或 `all`。用 `--list-targets` 查看 id。 |
+| `--target` | 逗号或空格分隔的 id，或 `all`。用 `--list-targets` 查看 id。**省略它，CLI 会交互式地问你导入到哪个工具**（见[对话式选择导入目标](#对话式选择导入目标)）。 |
 | `--model` | 有两种用途：`/models` 为空时提供 id；同时也限定最终写入哪些模型。 |
 | `--protocol` | 限定并重排协议探测顺序，例如已知网关是 Anthropic 原生就用 `--protocol anthropic`。 |
 | `--sample` | 有几个模型做 reasoning 探测；缺元数据的模型优先。`0` 表示完全跳过。 |
-| `--deep` | 逐模型探测 reasoning 与输出上限，而不是整网关一次。请求数大致等于「模型数 × 候选参数数」。 |
+| `--vision-sample` | 有几个模型做[视觉探测](#视觉能力探测)。`0` 表示跳过。抽样顺序与 `--sample` 相同。 |
+| `--deep` | 逐模型探测 reasoning、视觉与输出上限，而不是整网关一次。请求数大致等于「模型数 × 候选参数数」。 |
+| `--interactive` | 即使 stdin 不是 TTY 也强制弹出目标选择（脚本里用）。 |
 | `--default-context` | `/models` 不报上下文窗口时的兜底值。 |
 | `--default-maxout` | 越界探测拿不到上限时的兜底值。 |
 | `--timeout` | 单请求超时，毫秒。 |
@@ -180,6 +184,77 @@ anyprovider-wizard
 
 在真实终端里它会等一次回车再关闭窗口，所以双击启动也不会一闪而过。管道输入同样可用：先到的行会进队列，不会被丢掉。
 
+## 对话式选择导入目标
+
+不必事先记住 target 的 id。在终端里省略 `--target`，CLI 会列出目标菜单，问你要导入到哪里：
+
+```bash
+node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt
+```
+
+```
+   #  id           tool         config                                   status
+   1  zcode        ZCode        ~/.zcode/v2/provider_config.json         installed
+   2  opencode     opencode     ~/.config/opencode/opencode.json         not found
+   ...
+   8  env          Generic      ~/.anyprovider/providers.json            installed
+
+   Enter = the "installed" ones   1,3-5 = indexes   all = every tool
+   › 你目前需要向哪个里面导入？ [zcode opencode env]
+```
+
+- **回车** 选中磁盘上已有配置文件的那些 target（没有则回退到 `env`）。
+- **序号 / id** —— `1,3-5`、`opencode env`、`2 2 nope`（无法识别的 token 忽略，重复的去掉）。
+- **`all` / `a`** —— 所有 adapter。
+
+向导的"写进哪些工具？"用的是同一套答案语法。在非交互 shell（CI、管道）里若没给 `--target`，CLI 仍然直接以 `2` 退出而不会挂住 —— 想强制弹选择就加 `--interactive`，想全程脚本化就显式给 `--target`。`--json` 始终要求显式 `--target`，保证机器输出确定。
+
+## 视觉能力探测
+
+模型是否接受图片同样靠实测，而不是静态能力标记。对每个抽样模型，探测会用检测到的协议发送一张极小的内嵌 1×1 PNG —— chat 用 `image_url` 块、responses 用 `input_image`、Anthropic 用 `image` source —— 再读出结论：
+
+| 结果 | 含义 |
+|---|---|
+| `yes` | 带图片的请求被接受（网关若回显 image-token 用量，会记为证据）。 |
+| `no` | 图片被拒，但同形状的纯文本对照请求成功 —— 说明是图片的问题，不是格式的问题。 |
+| `unknown` | 无法判定（网络/鉴权错误，或网关拒绝所有 content 数组）。 |
+
+默认抽样 3 个模型（`--vision-sample`），顺序与 reasoning 相同：优先挑 `/models` 里缺元数据的。`--deep` 则逐个模型探测。严格多数会成为打印在摘要里的 provider 默认值；平票则留空，避免任何模型继承一个猜测。每行的视觉值会进 `--json`，并且在 ZCode 里驱动生成的 `inputFormat.supportsImage`（未探测的模型保守保持 `false`，除非 provider 投了 `yes`）。
+
+```bash
+node src/cli.mjs --base https://api.example.com/v1 --key-file ./key.txt \
+  --target zcode --vision-sample 5
+```
+
+人类可读输出 —— 注意 `vision` 列和摘要行：
+
+```
+   format    openai-chat-completions
+   reasoning reasoning_effort
+   vision    mixed/unknown  (no:1  yes:1)
+
+   #  model id    context  max out  reasoning         vision
+   1  gpt-4o      128000   16384    reasoning_effort  yes
+   2  gpt-4o-mini 128000   16384    -                 no
+
+   · Vision probed on 2 model(s): 1 accept images, 1 reject them (unknown = inconclusive).
+```
+
+同样的字段也出现在 `--json` 里：
+
+```json
+{
+  "providerVision": null,
+  "visionVotes": { "yes": 1, "no": 1 },
+  "models": [
+    { "id": "gpt-4o", "vision": "yes", "visionEvidence": ["image_tokens=1"] },
+    { "id": "gpt-4o-mini", "vision": "no", "visionEvidence": [] }
+  ]
+}
+```
+
+用 `--vision-sample 0` 可完全跳过这些额外请求。
+
 ## 支持的 target
 
 | id | 工具 | 写入文件 | 可安全合并? | 协议 |
@@ -212,7 +287,7 @@ anyprovider-wizard
 
 ## 探测是怎么做的
 
-四步，每一步靠实测。
+五步，每一步靠实测。
 
 **1. 模型列表。** 对给定的 base URL 和去掉版本段的变体都尝试 `GET {base}/models`，缺 `/v1` 时再补一次 —— 各家对 base URL 是否含版本段并不一致。第一个返回 200 且列表非空的结果胜出。遇到 401/403 立刻终止，而不是把所有候选重试一遍。
 
@@ -228,16 +303,18 @@ anyprovider-wizard
 
 参数被接受就保留；同时会记录网关是否真的回显了 reasoning（`reasoning_content`、`thinking` 块、`reasoning_tokens`），被接受却完全没有回显的会在 `--json` 输出里标记为 silent。默认抽样三个模型（优先挑 `/models` 里缺元数据的），多数结果作为整个 provider 的默认值；`--deep` 则逐个模型探测。**被测过且拒绝所有参数的模型记为"不支持 reasoning"，不会去继承那个全局结论。**
 
-**4. 输出上限。** `/models` 有元数据就用（`max_completion_tokens`、`max_output_tokens`、`max_tokens`）。没有就故意用 `max_tokens: 1000000` 越界，让网关自己的 400 报错里写出真实上限，再从文本里解析出来，并约束在越界值之下。缺上限的模型共用这一次探测；`--deep` 则逐个探测。上下文窗口取自 `context_length` / `context_window` / `max_context_length` / `max_model_len`，都没有就用 `--default-context`。
+**4. 视觉。** 用检测到的协议原生图片形状发送一张极小的内嵌 1×1 PNG。图片被接受就是 `yes`；被拒时与纯文本对照请求比较，以区分"不支持图片"和"不支持这种 content 格式"；含糊不清的一律 `unknown`。默认抽样三个模型，严格多数成为 provider 默认值 —— 详见[视觉能力探测](#视觉能力探测)。
+
+**5. 输出上限。** `/models` 有元数据就用（`max_completion_tokens`、`max_output_tokens`、`max_tokens`）。没有就故意用 `max_tokens: 1000000` 越界，让网关自己的 400 报错里写出真实上限，再从文本里解析出来，并约束在越界值之下。缺上限的模型共用这一次探测；`--deep` 则逐个探测。上下文窗口取自 `context_length` / `context_window` / `max_context_length` / `max_model_len`，都没有就用 `--default-context`。
 
 所有结果汇总成一个对象，`--json` 会原样输出。
 
 ## 局限
 
 - **只支持三种协议。** OpenAI chat completions、OpenAI responses、Anthropic messages。没有原生 Gemini、Bedrock、Cohere 协议。
-- **不探测模型能力。** 是否支持图片、视频、PDF、原生联网搜索、JSON-schema 输出，一概不测。adapter 会写保守默认值（ZCode 里是 `supportsImage: false`、`supportsNativeWebSearch: false`），模型确实支持的话需要手工打开。
+- **只有视觉做能力探测。** 图片输入会被检测（见[视觉能力探测](#视觉能力探测)）；视频、PDF、原生联网搜索、JSON-schema 输出仍然默认关闭。adapter 会写保守默认值（ZCode 里是 `supportsVideo: false`、`supportsPdf: false`、`supportsNativeWebSearch: false`），模型确实支持的话需要手工打开。
 - **逐模型差异会被抹平。** 除非加 `--deep`，一个 provider 只保留一个 reasoning 参数；如果同一端点后面混着推理模型和非推理模型，可能需要 `--deep`。
-- **探测要花请求。** 每次运行会发若干条极小的 completion 请求；`--deep` 大致是「每模型 × 每个候选参数一条」。`--sample 0` 可以完全跳过 reasoning 探测。
+- **探测要花请求。** 每次运行会发若干条极小的 completion 请求；`--deep` 大致是「每模型 × 每个候选参数一条」。`--sample 0` 跳过 reasoning 探测，`--vision-sample 0` 跳过视觉探测。
 - **opencode 新版把凭据放在环境变量里。** 现代 `providers` 结构引用的是环境变量名而不是 Key，所以 adapter 会打印你需要先执行的 `export` / `setx` 行；只有旧的 `provider` 结构才接受内联 `apiKey`。
 - **YAML target 从不合并。** Continue、LiteLLM、aider 只有在文件不存在时才整份生成；已存在就给你一个 `.anyprovider.<ext>` 建议文件，让你自己粘贴。YAML 列表没法安全追加。
 - **`--target all` 会写到当前目录。** `litellm` target 解析成相对于当前工作目录的 `./litellm.config.yaml`，而 `env` 会在 `~/.anyprovider/providers.json` 里留一份含 Key 的副本。

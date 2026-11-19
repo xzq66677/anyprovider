@@ -9,6 +9,7 @@ import opencode from '../src/targets/opencode.mjs';
 import claudeCode from '../src/targets/claude-code.mjs';
 import continueTarget from '../src/targets/continue.mjs';
 import env from '../src/targets/env.mjs';
+import { parseTargetSelection } from '../src/targets/index.mjs';
 import { executePlan } from '../src/core/run.mjs';
 import { applyWrites } from '../src/core/apply.mjs';
 
@@ -61,6 +62,24 @@ describe('zcode target', () => {
     // The model that rejected every knob still needs a reasoningLevel object —
     // omitting it makes ZCode drop the whole file.
     assert.deepEqual(manual[1].config.optionSpecs.reasoningLevel, { values: ['enabled'], map: '{}' });
+  });
+
+  it('reflects the probe result in supportsImage, defaulting to false', () => {
+    const withVision = [
+      { ...selected[0], vision: 'yes' },
+      { ...selected[1], vision: 'no' },
+    ];
+    const path = join(dir, 'zcode', 'vision.json');
+    const plan = zcode.plan({ discovery, selected: withVision, ...opts, path });
+    const manual = JSON.parse(plan.writes[0].text).config.modelConfigRules.manualProviderModelRules;
+    assert.equal(manual[0].config.properties.inputFormat.supportsImage, true);
+    assert.equal(manual[1].config.properties.inputFormat.supportsImage, false);
+
+    // Unprobed models stay conservative unless the provider voted yes.
+    const unprobed = zcode.plan({ discovery: { ...discovery, providerVision: 'yes' }, selected, ...opts, path });
+    const m2 = JSON.parse(unprobed.writes[0].text).config.modelConfigRules.manualProviderModelRules;
+    assert.equal(m2[0].config.properties.inputFormat.supportsImage, true);
+    assert.equal(m2[1].config.properties.inputFormat.supportsImage, true);
   });
 
   it('is idempotent', () => {
@@ -162,6 +181,20 @@ describe('other targets', () => {
     assert.equal(entry.baseUrl, opts.baseUrl);
     assert.equal(entry.models['think-1'].contextWindow, 262144);
     assert.match(plan.snippet, /OPENAI_BASE_URL/);
+  });
+});
+
+describe('interactive target selection', () => {
+  it('parses indexes, ids and all into target objects', () => {
+    assert.deepEqual(parseTargetSelection('1,3').map((t) => t.id), ['zcode', 'claude-code']);
+    assert.deepEqual(parseTargetSelection('opencode env').map((t) => t.id), ['opencode', 'env']);
+    assert.equal(parseTargetSelection('all').length, 8);
+    assert.equal(parseTargetSelection('a').length, 8);
+  });
+
+  it('ignores unknown tokens and de-duplicates', () => {
+    assert.deepEqual(parseTargetSelection('2 2 nope').map((t) => t.id), ['opencode']);
+    assert.deepEqual(parseTargetSelection('').map((t) => t.id), []);
   });
 });
 

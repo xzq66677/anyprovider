@@ -38,6 +38,21 @@ export function resolveTargets(list) {
 }
 
 /**
+ * Parse an interactive selection answer into target objects. Accepts 1-based
+ * indexes, ids, and "all"/"a"; unknown tokens are ignored and order preserved.
+ * Shared by the CLI prompt and the wizard so both understand the same syntax.
+ */
+export function parseTargetSelection(answer) {
+  const picked = [];
+  for (const part of String(answer || '').split(/[\s,，]+/).filter(Boolean)) {
+    if (/^a(ll)?$/i.test(part)) { picked.push(...TARGETS); continue; }
+    const t = /^\d+$/.test(part) ? TARGETS[Number(part) - 1] : TARGETS.find((x) => x.id === part);
+    if (t && !picked.includes(t)) picked.push(t);
+  }
+  return picked;
+}
+
+/**
  * Can this target consume what the gateway speaks?
  * `protocols` is a declaration every adapter must honour, otherwise a chat-only
  * harness silently gets a config written for an anthropic gateway.

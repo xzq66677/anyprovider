@@ -9,11 +9,13 @@
 import { request, errorText, numbersAbove, isAuthStatus } from './http.mjs';
 import { endpointCandidates, normalizeBase, PROTOCOLS, PROTOCOL_FORMATS } from './endpoints.mjs';
 import { REASONING_CANDIDATES, reasoningEvidence } from './reasoning.mjs';
+import { probeVision, visionLabel } from './vision.mjs';
 
 export const DEFAULTS = {
   contextWindow: 128_000,
   maxOutputTokens: 32_000,
   sample: 3,
+  visionSample: 3,
   concurrency: 4,
   timeout: 30_000,
   /** Deliberately absurd, so the gateway's own 400 tells us the real ceiling. */
@@ -182,11 +184,12 @@ async function probeMaxOutput({ protocol, url, apiKey, model, timeout, overshoot
  * @param {string} options.apiKey
  * @param {string[]} [options.modelIds]   manual IDs when /models is missing
  * @param {string[]} [options.protocols]  restrict / reorder protocol detection
- * @param {number}   [options.sample]     how many models get a reasoning probe
- * @param {boolean}  [options.deep]       probe *every* model individually
+ * @param {number}   [options.sample]       how many models get a reasoning probe
+ * @param {number}   [options.visionSample] how many models get a vision probe (0 = skip)
+ * @param {boolean}  [options.deep]         probe *every* model individually
  * @param {number}   [options.concurrency]
  * @param {number}   [options.timeout]
- * @param {object}   [options.defaults]   {contextWindow, maxOutputTokens}
+ * @param {object}   [options.defaults]     {contextWindow, maxOutputTokens}
  * @param {(kind: string, payload: any) => void} [options.onEvent]
  */
 export async function discover(options) {
@@ -195,6 +198,7 @@ export async function discover(options) {
     modelIds = [],
     protocols,
     sample = DEFAULTS.sample,
+    visionSample = DEFAULTS.visionSample,
     deep = false,
     concurrency = DEFAULTS.concurrency,
     timeout = DEFAULTS.timeout,
@@ -222,6 +226,8 @@ export async function discover(options) {
     models: [],
     providerReasoning: null,
     reasoningVotes: {},
+    providerVision: null,
+    visionVotes: {},
     notes,
     attempts: {},
   };
@@ -290,6 +296,35 @@ export async function discover(options) {
     result.providerReasoning = winner ? winner[0] : null;
   }
 
+  /* 3b. vision ---------------------------------------------------------- */
+  const visionPicks = deep
+    ? probeable
+    : [...probeable]
+      .sort((a, b) => (contextWindowOf(a) ? 1 : 0) - (contextWindowOf(b) ? 1 : 0))
+      .slice(0, Math.max(0, visionSample));
+
+  const visionSampled = new Map();
+  if (visionPicks.length) {
+    const visionResults = await mapLimit(visionPicks, Math.min(concurrency, 3), async (m) => {
+      const r = await probeVision({ protocol: result.protocol, url: result.protocolUrl, apiKey, model: m.id, timeout });
+      onEvent('vision', { model: m.id, ...r });
+      return r;
+    });
+    visionPicks.forEach((m, i) => visionSampled.set(m.id, visionResults[i]));
+
+    const votes = {};
+    for (const r of visionResults) {
+      const label = visionLabel(r);
+      if (label && label !== 'unknown') votes[label] = (votes[label] || 0) + 1;
+    }
+    result.visionVotes = votes;
+    const ranked = Object.entries(votes).sort((a, b) => b[1] - a[1]);
+    // Only a strict majority becomes the provider-wide default; a tie stays
+    // null so no model inherits a guess.
+    const winner = ranked.length === 1 || (ranked.length > 1 && ranked[0][1] > ranked[1][1]) ? ranked[0] : null;
+    result.providerVision = winner ? winner[0] : null;
+  }
+
   /* 4. per-model parameters --------------------------------------------- */
   let sharedMaxOutput = null;
   let sharedMaxOutputSource = null;
@@ -304,6 +339,10 @@ export async function discover(options) {
         maxOutput: maxOutputOf(m) ? 'model-list' : null,
       },
       probe: sampled.get(m.id) || null,
+      vision: visionLabel(visionSampled.get(m.id)) || null,
+      visionEvidence: visionSampled.get(m.id)?.evidence || [],
+      visionReason: visionSampled.get(m.id)?.reason || null,
+      visionProbed: visionSampled.has(m.id),
       manual: !!m.manual,
     };
 
@@ -362,6 +401,13 @@ export async function discover(options) {
     notes.push('Reasoning probing was skipped, so no reasoning option was configured. Re-run without --sample 0 to detect it.');
   } else if (!result.providerReasoning) {
     notes.push('No reasoning knob was accepted — models get no reasoning option.');
+  }
+  if (visionSampled.size) {
+    const yes = Object.entries(result.visionVotes).find(([k]) => k === 'yes')?.[1] || 0;
+    const no = Object.entries(result.visionVotes).find(([k]) => k === 'no')?.[1] || 0;
+    notes.push(`Vision probed on ${visionSampled.size} model(s): ${yes} accept images, ${no} reject them (unknown = inconclusive).`);
+  } else if (!deep) {
+    notes.push('Vision probing was skipped (--vision-sample 0). Re-run without it to detect image support.');
   }
 
   return result;

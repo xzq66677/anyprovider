@@ -345,7 +345,7 @@ export default {
 ## 开发
 
 ```bash
-npm test        # node --test test/
+npm test        # node --test test/probe.test.mjs test/targets.test.mjs
 ```
 
 测试用本地 mock 网关（`test/mock-gateway.mjs`），只往临时目录写，绝不会碰你的真实配置。CI 在 Ubuntu、Windows、macOS 上分别用 Node 18、20、22 跑同一条命令。

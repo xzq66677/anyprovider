@@ -345,7 +345,7 @@ Rules: return text, never write; throw rather than emit something you know is in
 ## Development
 
 ```bash
-npm test        # node --test test/
+npm test        # node --test test/probe.test.mjs test/targets.test.mjs
 ```
 
 The suite uses a local mock gateway (`test/mock-gateway.mjs`) and writes into a temp directory; it never touches a real config. CI runs the same command on Ubuntu, Windows and macOS against Node 18, 20 and 22.
